@@ -17,85 +17,87 @@
 import { ContainerModule } from 'inversify';
 import {
     BackendAndFrontend,
-    bindServiceProvider, ConnectionHandler, ConnectionMultiplexer, ConnectionRouter,
+    bindServiceProvider, ConnectionHandler, ConnectionRouter,
+    Deferred,
     ProxyProvider,
+    RouteHandlerProvider,
     Rpc,
-    ServiceProvider
+    ServiceProvider,
+    Rc
 } from '../../common';
 import { AnyConnection, DeferredConnectionFactory } from '../../common/connection';
-import { ContainerScopeReady, ContainerScopeRegistry, DefaultContainerScopeRegistry } from '../../common/container-scope';
-import { collectRecursive, getAllNamedOptional } from '../../common/inversify-utils';
+import { ContainerScope } from '../../common/container-scope';
+import { getAllNamedOptional, getAllOptional } from '../../common/inversify-utils';
 import { BackendApplicationContribution } from '../backend-application';
 import { SocketIoServer } from '../socket-io-server';
 import { DefaultRpcProxyProvider } from '../../common/rpc';
 import { JSON_RPC_ROUTE } from '../../common/json-rpc-protocol';
-import { FrontendServiceConnectionProvider } from './frontend-service-connection-provider';
 import { DefaultConnectionMultiplexer } from '../../common/connection-multiplexer';
 import { DefaultRouter, Router } from '../../common/routing';
 import { JsonRpc } from '../../common/json-rpc';
+import { ConnectionContainerModule } from './connection-container-module';
 
 export const BackendAndFrontendContainerScopeModule = new ContainerModule(bind => {
     bindServiceProvider(bind, BackendAndFrontend);
     bind(ConnectionRouter)
         .toDynamicValue(ctx => {
+            const handlers = getAllNamedOptional(ctx.container, ConnectionHandler, BackendAndFrontend);
             const router = ctx.container.get<DefaultRouter<AnyConnection>>(DefaultRouter);
-            collectRecursive(ctx.container, container => getAllNamedOptional(container, ConnectionHandler, BackendAndFrontend))
-                .forEach(handler => router.listen(handler));
+            handlers.forEach(handler => router.listen(handler));
             return router;
-        })
-        .inSingletonScope();
-    bind(ConnectionMultiplexer)
-        .toDynamicValue(ctx => {
-            const backendProxyingService = ctx.container.get(FrontendServiceConnectionProvider);
-            const deferredConnectionFactory = ctx.container.get(DeferredConnectionFactory);
-            return ctx.container.get(DefaultConnectionMultiplexer).initialize(deferredConnectionFactory(backendProxyingService.backendProxyingConnection));
         })
         .inSingletonScope()
         .whenTargetNamed(BackendAndFrontend);
-    // This proxy provider will run JSON-RPC over the frontend service connection
+    /** Resolves when the frontend opens its `/backend-services/` connection. */
+    const backendServiceConnectionDeferred = new Deferred<AnyConnection>();
+    // Connection handler for the backend service connection used for reverse service requests
+    bind(ConnectionHandler)
+        .toDynamicValue(ctx => ctx.container.get(RouteHandlerProvider)
+            .createRouteHandler('/backend-services/', (params, accept, next) => {
+                if (backendServiceConnectionDeferred.state === 'unresolved') {
+                    backendServiceConnectionDeferred.resolve(accept());
+                } else {
+                    next(new Error('cannot open two backend service connections'));
+                }
+            })
+        )
+        .inSingletonScope()
+        .whenTargetNamed(BackendAndFrontend);
+    // JSON-RPC proxy from backend to frontend instances provider
     bind(ProxyProvider)
         .toDynamicValue(ctx => {
             const jsonRpc = ctx.container.get(JsonRpc);
             const proxyProvider = ctx.container.get(DefaultRpcProxyProvider);
-            const connectionProvider = ctx.container.getNamed(ConnectionMultiplexer, BackendAndFrontend);
+            const deferredConnectionFactory = ctx.container.get(DeferredConnectionFactory);
+            const backendServiceConnection = deferredConnectionFactory(backendServiceConnectionDeferred.promise);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const multiplexer = ctx.container.get(DefaultConnectionMultiplexer).initialize<any>(backendServiceConnection);
             return proxyProvider.initialize(serviceId => {
                 const path = JSON_RPC_ROUTE.reverse({ serviceId });
-                const connection = connectionProvider.open({ path });
+                const connection = multiplexer.open({ path });
                 const messageConnection = jsonRpc.createMessageConnection(connection);
                 return jsonRpc.createRpcConnection(messageConnection);
             });
         })
         .inSingletonScope()
         .whenTargetNamed(BackendAndFrontend);
-    bind(FrontendServiceConnectionProvider).toSelf().inSingletonScope();
-    // Service connection handler
-    bind(ConnectionHandler)
-        .toDynamicValue(ctx => ctx.container.get(FrontendServiceConnectionProvider).createConnectionHandler())
-        .inSingletonScope()
-        .whenTargetNamed(BackendAndFrontend);
-    // JSON-RPC connection handler
+    // JSON-RPC proxy from frontend to backend connection handler
     bind(ConnectionHandler)
         .toDynamicValue(ctx => {
             const serviceProvider = ctx.container.getNamed(ServiceProvider, BackendAndFrontend);
             const jsonRpc = ctx.container.get(JsonRpc);
             const rpcProxying = ctx.container.get(Rpc);
-            return ({ path }, accept, next) => {
-                if (typeof path !== 'string') {
-                    return next();
-                }
-                const match = JSON_RPC_ROUTE.match(path);
-                if (!match) {
-                    return next();
-                }
-                const [service, dispose] = serviceProvider.getService(match.serviceId);
-                if (!service) {
-                    return next();
-                }
-                const messageConnection = jsonRpc.createMessageConnection(accept());
-                const rpcConnection = jsonRpc.createRpcConnection(messageConnection);
-                rpcProxying.serve(service, rpcConnection);
-                rpcConnection.onClose(dispose);
-            };
+            return ctx.container.get(RouteHandlerProvider)
+                .createRouteHandler(JSON_RPC_ROUTE, (params, accept, next) => {
+                    const [service, dispose] = serviceProvider.getService(params.route.params.serviceId);
+                    if (!service) {
+                        return next();
+                    }
+                    const messageConnection = jsonRpc.createMessageConnection(accept());
+                    const rpcConnection = jsonRpc.createRpcConnection(messageConnection);
+                    rpcProxying.serve(service, rpcConnection);
+                    rpcConnection.onClose(dispose);
+                });
         })
         .inSingletonScope()
         .whenTargetNamed(BackendAndFrontend);
@@ -111,53 +113,56 @@ export const messagingBackendModule = new ContainerModule(bind => {
             onStart(httpServer): void {
                 const router = ctx.container.getNamed(ConnectionRouter, BackendAndFrontend);
                 ctx.container.get(SocketIoServer).initialize(httpServer, router, {
-                    middlewares: [
-                        (socket, next) => {
-                            next();
-                            if (socket.request.headers.origin) {
-                                // next();
-                            } else {
-                                // next(new Error('invalid connection'));
-                            }
-                        }
-                    ]
+                    // middlewares: [
+                    //     (socket, next) => {
+                    //         if (socket.request.headers.origin) {
+                    //             next();
+                    //         } else {
+                    //             next(new Error('invalid connection'));
+                    //         }
+                    //     }
+                    // ]
                 });
             }
         }))
         .inSingletonScope();
+    // Router handling the frontend to backend connections
     bind(ConnectionRouter)
         .toDynamicValue(ctx => {
+            const rcTracker = ctx.container.get(Rc.Tracker);
+            const containerScopeFactory = ctx.container.get(ContainerScope.Factory);
             const router = ctx.container.get<DefaultRouter<AnyConnection>>(DefaultRouter);
-            const scopes = ctx.container.getNamed(ContainerScopeRegistry, BackendAndFrontend);
+            const scopes = new Rc.SharedRefMap((frontendId: string) => {
+                const scopedModules = getAllNamedOptional(ctx.container, ContainerModule, BackendAndFrontend);
+                // TODO: Remove this API?
+                const scopedModules2 = getAllOptional(ctx.container, ConnectionContainerModule);
+                const child = ctx.container.createChild();
+                child.load(...scopedModules2, ...scopedModules);
+                const readyCallbacks = getAllNamedOptional(child, ContainerScope.Init, BackendAndFrontend);
+                const containerScope = containerScopeFactory(child, readyCallbacks);
+                return rcTracker.track(containerScope);
+            });
             // first routing to find the Inversify container scope for `frontendId`
-            router.listen(({ frontendId, ...params }, accept, next) => {
-                if (!frontendId) {
+            router.listen((params, accept, next) => {
+                if (!params.frontendId) {
                     return next();
                 }
-                const scope = scopes.getOrCreateScope(frontendId);
+                const scopeRc = scopes.cloneOrCreate(params.frontendId);
                 // second routing to dispatch the incoming connection to scoped services
-                scope.ref().container().get<Router<AnyConnection>>(ConnectionRouter).route(params, () => {
-                    const connection = accept();
-                    connection.onClose(() => scope.dispose());
-                    return connection;
-                }, next);
+                scopeRc.ref()
+                    .container()
+                    .getNamed<Router<AnyConnection>>(ConnectionRouter, BackendAndFrontend)
+                    .route(params, () => {
+                        const connection = accept();
+                        connection.onClose(() => scopeRc.dispose());
+                        return connection;
+                    }, error => {
+                        scopeRc.dispose();
+                        next(error);
+                    });
             });
             return router;
         })
-        .inSingletonScope()
-        .whenTargetNamed(BackendAndFrontend);
-    bind(ContainerScopeRegistry)
-        .toDynamicValue(ctx => ctx.container.get(DefaultContainerScopeRegistry).initialize(
-            // containerFactory
-            () => {
-                const modules = getAllNamedOptional(ctx.container, ContainerModule, BackendAndFrontend);
-                const child = ctx.container.createChild();
-                child.load(...modules);
-                return child;
-            },
-            // getCallbacks
-            container => getAllNamedOptional(container, ContainerScopeReady, BackendAndFrontend)
-        ))
         .inSingletonScope()
         .whenTargetNamed(BackendAndFrontend);
     bind(ContainerModule)

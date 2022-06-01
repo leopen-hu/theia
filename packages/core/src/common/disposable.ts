@@ -60,7 +60,7 @@ Object.defineProperty(Disposable, 'NULL', {
 
 /**
  * Getting this type usually means you should not call
- * {@link Disposable.dispose} on {@link T} as the instance is handled by
+ * {@link Disposable.dispose} on {@link T} as the instance is managed by
  * someone else.
  */
 export type Owned<T> = Omit<T, 'dispose'>;

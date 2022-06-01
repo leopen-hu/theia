@@ -32,7 +32,7 @@ export default new ContainerModule(bind => {
     bind(VSXExtensionResolver).toSelf().inSingletonScope();
     bind(PluginDeployerResolver).toService(VSXExtensionResolver);
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [VSX_ENVIRONMENT_PATH, () => ctx.container.get(VSXEnvironment)]
         ))
         .inSingletonScope()

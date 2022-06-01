@@ -25,11 +25,14 @@ import { TaskRunnerContribution, TaskRunnerRegistry } from './task-runner';
 import { TaskServerImpl } from './task-server';
 import { createCommonBindings } from '../common/task-common-module';
 import { TaskServer, taskPath } from '../common';
+import { ContainerScope } from '@theia/core/lib/common/container-scope';
 
 export const TaskContainerModule = new ContainerModule(bind => {
-    bind(TaskServer).to(TaskServerImpl).inSingletonScope();
+    bind(TaskServerImpl).toSelf().inSingletonScope();
+    bind(ContainerScope.Destroy).toService(TaskServerImpl);
+    bind(TaskServer).toService(TaskServerImpl);
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [taskPath, () => ctx.container.get(TaskServer)]
         ))
         .inSingletonScope()
@@ -37,6 +40,10 @@ export const TaskContainerModule = new ContainerModule(bind => {
 });
 
 export default new ContainerModule(bind => {
+    bind(ContainerModule)
+        .toConstantValue(TaskContainerModule)
+        .whenTargetNamed(BackendAndFrontend);
+
     bind(TaskManager).toSelf().inSingletonScope();
     bind(BackendApplicationContribution).toService(TaskManager);
 

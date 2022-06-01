@@ -19,16 +19,28 @@
 import { injectable } from 'inversify';
 import { AbstractConnection, Connection, ConnectionProvider, ConnectionState } from '../../common';
 import * as socket_io from 'socket.io-client';
+import { v4 } from 'uuid';
 
 export interface SocketIoParams {
     path: string
+    query?: Record<string, string>
 }
 
 @injectable()
 export class SocketIoConnectionProvider implements ConnectionProvider<any, SocketIoParams> {
 
+    protected frontendId = this.getFrontendId();
+
     open(params: SocketIoParams): Connection<any> {
-        return new SocketIoConnection(socket_io.io(params.path));
+        return new SocketIoConnection(socket_io.io(params.path, {
+            query: {
+                THEIA_FRONTEND_ID: this.frontendId
+            }
+        }));
+    }
+
+    protected getFrontendId(): string {
+        return v4();
     }
 }
 

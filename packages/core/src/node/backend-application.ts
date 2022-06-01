@@ -161,12 +161,7 @@ export class BackendApplication {
         protected readonly cliParams: BackendApplicationCliContribution
     ) {
         process.on('uncaughtException', error => {
-            if (error) {
-                console.error('Uncaught Exception: ', error.toString());
-                if (error.stack) {
-                    console.error(error.stack);
-                }
-            }
+            console.error(error?.stack ?? error ?? 'Uncaught Exception: undefined');
         });
 
         // Workaround for Electron not installing a handler to ignore SIGPIPE error

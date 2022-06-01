@@ -19,11 +19,11 @@
 import * as jsonrpc from 'vscode-jsonrpc';
 import { ApplicationError } from './application-error';
 import { CancellationToken } from './cancellation';
-import { Disposable } from './disposable';
-import { RpcConnection } from './rpc';
 import { Connection } from './connection';
-import { serviceIdentifier } from './types';
+import { Disposable } from './disposable';
 import { Event } from './event';
+import { RpcConnection } from './rpc';
+import { serviceIdentifier } from './types';
 
 export const JsonRpc = serviceIdentifier<JsonRpc>('JsonRpc');
 export interface JsonRpc {
@@ -108,9 +108,14 @@ export class JsonRpcConnection implements RpcConnection {
     }
 
     async sendRequest<T>(method: string, params: any[]): Promise<T> {
+        const { stack } = new Error();
         try {
             return await this.messageConnection.sendRequest(method, jsonrpc.ParameterStructures.byPosition, ...params);
         } catch (error) {
+            if (stack) {
+                error.stack ??= 'Stackless Error...';
+                error.stack += `\n[concatenated stack] ${stack}`;
+            }
             throw this.deserializeError(error);
         }
     }
@@ -119,9 +124,9 @@ export class JsonRpcConnection implements RpcConnection {
         this.messageConnection.end();
     }
 
-    protected async call<T extends any[]>(callback: (...params: T) => any, ...args: T): Promise<any> {
+    protected async call<T extends any[]>(func: (...params: T) => any, ...args: T): Promise<any> {
         try {
-            return await callback(...args);
+            return await func.apply(undefined, args);
         } catch (error) {
             throw this.serializeError(error);
         }

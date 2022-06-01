@@ -16,11 +16,10 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { inject, injectable } from 'inversify';
 import { serviceIdentifier } from './types';
 import { AbstractConnection, Connection, ConnectionProvider, ConnectionState } from './connection';
 import { Disposable, DisposableCollection } from './disposable';
-import { Broker, Handler, Middleware, DefaultRouter } from './routing';
+import { Broker, Handler, Middleware, Router } from './routing';
 
 export const ConnectionMultiplexer = serviceIdentifier<ConnectionMultiplexer<any>>('ConnectionMultiplexer');
 export type ConnectionMultiplexer<T extends Connection<any>, P extends object = any> = ConnectionProvider<T, P> & Broker<T, P>;
@@ -50,7 +49,6 @@ export type ConnectionMultiplexer<T extends Connection<any>, P extends object = 
  * One way to see it is that each endpoint's internal map is a mirror of the other:
  * `Channel(1)` on one side is `Channel(-1)` on the other side.
  */
-@injectable()
 export class DefaultConnectionMultiplexer implements ConnectionMultiplexer<Connection<unknown>> {
 
     protected idSequence = 1;
@@ -59,8 +57,9 @@ export class DefaultConnectionMultiplexer implements ConnectionMultiplexer<Conne
     protected disposables = new DisposableCollection();
     protected transport?: Connection<ChannelMessage>;
 
-    @inject(DefaultRouter)
-    protected router: DefaultRouter<unknown>;
+    constructor(
+        protected routerBroker: Router<unknown> & Broker<unknown>
+    ) { }
 
     initialize<T, P extends object = any>(connection: Connection<ChannelMessage>): ConnectionMultiplexer<Connection<T>, P> {
         this.transport = connection;
@@ -78,11 +77,11 @@ export class DefaultConnectionMultiplexer implements ConnectionMultiplexer<Conne
     }
 
     use(middleware: Middleware<any>): Disposable {
-        return this.router.use(middleware);
+        return this.routerBroker.use(middleware);
     }
 
     listen(handler: Handler<any>): Disposable {
-        return this.router.listen(handler);
+        return this.routerBroker.listen(handler);
     }
 
     protected createChannel(id: number): Channel<unknown> {
@@ -117,7 +116,7 @@ export class DefaultConnectionMultiplexer implements ConnectionMultiplexer<Conne
                 throw new Error(`a channel with id=${id} is already being handled`);
             }
             this.opening.add(id);
-            this.router.route(params, () => {
+            this.routerBroker.route(params, () => {
                 this.opening.delete(id);
                 const channel = this.createChannel(id);
                 this.registerChannel(channel);

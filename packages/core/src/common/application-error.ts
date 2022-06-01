@@ -60,7 +60,7 @@ export namespace ApplicationError {
             Object.setPrototypeOf(self, ImplExt.prototype);
             return self;
         }
-        // prototype shenanigans
+        // setup proper prototype chain
         Object.setPrototypeOf(ImplExt, Impl);
         Object.setPrototypeOf(ImplExt.prototype, Impl.prototype);
         // static methods

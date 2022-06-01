@@ -14,13 +14,17 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
-/* eslint-disable no-null/no-null */
-
 import type { interfaces } from 'inversify';
 
 export function getOptional<T>(container: interfaces.Container, serviceIdentifier: interfaces.ServiceIdentifier<T>): T | undefined {
     if (container.isBound(serviceIdentifier)) {
         return container.get(serviceIdentifier);
+    }
+}
+
+export function getNamedOptional<T>(container: interfaces.Container, serviceIdentifier: interfaces.ServiceIdentifier<T>, name: string | number | symbol): T | undefined {
+    if (container.isBoundNamed(serviceIdentifier, name)) {
+        return container.getNamed(serviceIdentifier, name);
     }
 }
 
@@ -40,22 +44,23 @@ export function getAllNamedOptional<T>(container: interfaces.Container, serviceI
 
 /**
  * Go through the chain of parent containers while collecting bindings.
- * @note
- * It will disconnect the current container from its parent when calling
- * {@link collect} before reverting the change. We must do this otherwise
- * resolutions might be duplicated (e.g. once in the child that bubbled the
- * request to its parent, and once in the parent itself).
+ * @param container
+ * @param test Callback invoked while `container` is disconnected from its parent.
+ * @param collect Callback invoked only if {@link test} returned `true`.
  */
-export function collectRecursive<T>(container: interfaces.Container, collect: (container: interfaces.Container) => T[]): T[] {
-    let result: T[] = [];
-    let current: interfaces.Container | null = container;
-    do {
-        const parent: interfaces.Container | null = current.parent;
-        current.parent = null;
-        result = result.concat(collect(current));
-        current.parent = parent;
-    } while (
-        current = current.parent
-    );
-    return result;
+export function collectRecursive<T>(
+    container: interfaces.Container,
+    test: (container: interfaces.Container) => boolean,
+    collect: (container: interfaces.Container) => T[]
+): T[] {
+    const parent = container.parent;
+    // eslint-disable-next-line no-null/no-null
+    container.parent = null;
+    const shouldCollect = test(container);
+    container.parent = parent;
+    const collected = shouldCollect ? collect(container) : [];
+    if (parent) {
+        return collected.concat(collectRecursive(parent, test, collect));
+    }
+    return collected;
 }

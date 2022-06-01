@@ -15,12 +15,13 @@
 // *****************************************************************************
 
 import { Disposable, Event, serviceIdentifier, servicePath } from '@theia/core';
+import Route = require('@theia/core/shared/route-parser');
 import { IBaseTerminalServer, IBaseTerminalServerOptions } from './base-terminal-protocol';
 
 export const ITerminalServer = serviceIdentifier<ITerminalServer>('ITerminalServer');
 export const terminalPath = servicePath<ITerminalServer>('/services/terminal');
 
-export const terminalsPath = servicePath<RemoteTerminal, { terminalId: number }>('/services/terminals');
+export const REMOTE_TERMINAL_ROUTE = new Route<{ terminalId: string }>('/services/terminals/:terminalId');
 
 export interface ITerminalServer extends IBaseTerminalServer {
     create(ITerminalServerOptions: object): Promise<number>;

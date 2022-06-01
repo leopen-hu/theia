@@ -44,8 +44,8 @@ export default new ContainerModule(bind => {
     // #endregion
     bindFileSystemWatcherServer(bind);
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
-            [remoteFileSystemPath, (params, lifecycle) => lifecycle.track(ctx.container.get(RemoteFileSystemServer))],
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
+            [remoteFileSystemPath, (params, lifecycle) => lifecycle.track(ctx.container.get(RemoteFileSystemServer)).ref()],
             [FILE_SYSTEM_WATCHER_SERVER_PATH, () => ctx.container.get(FileSystemWatcherServer)]
         ))
         .inSingletonScope()

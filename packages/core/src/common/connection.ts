@@ -16,7 +16,6 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { injectable } from 'inversify';
 import { Disposable, DisposableCollection } from './disposable';
 import { Emitter, Event } from './event';
 import { Broker, Handler, Router } from './routing';
@@ -99,7 +98,6 @@ export type ConnectionEmitter = Broker<Connection<any>>;
 export const DeferredConnectionFactory = serviceIdentifier<DeferredConnectionFactory>('DeferredConnectionFactory');
 export type DeferredConnectionFactory = <T>(connectionPromise: PromiseLike<Connection<T>>) => Connection<T>;
 
-@injectable()
 export abstract class AbstractConnection<T> implements Connection<T>, Disposable {
 
     abstract state: ConnectionState;
@@ -230,6 +228,68 @@ export class DeferredConnection<T> extends AbstractConnection<T> {
 }
 
 /**
+ * A `BufferedConnection` will buffer messages until the next tick
+ * and send everything as an array.
+ */
+export class BufferedConnection<T> implements Connection<T> {
+
+    protected buffered?: T[];
+    protected disposables = new DisposableCollection();
+    protected onMessageEmitter = this.disposables.pushThru(new Emitter<T>());
+
+    constructor(
+        protected transport: Connection<T[]>
+    ) {
+        transport.onClose(() => {
+            this.buffered = undefined;
+            this.disposables.dispose();
+        });
+        transport.onMessage(messages => {
+            messages.forEach(message => {
+                this.onMessageEmitter.fire(message);
+            });
+        });
+    }
+
+    get state(): ConnectionState {
+        return this.transport.state;
+    }
+
+    get onClose(): Event<void> {
+        return this.transport.onClose;
+    }
+
+    get onError(): Event<Error> {
+        return this.transport.onError;
+    }
+
+    get onMessage(): Event<T> {
+        return this.onMessageEmitter.event;
+    }
+
+    get onOpen(): Event<void> {
+        return this.transport.onOpen;
+    }
+
+    sendMessage(message: T): void {
+        if (!this.buffered) {
+            this.buffered = [];
+            queueMicrotask(() => {
+                if (this.buffered) {
+                    this.transport.sendMessage(this.buffered);
+                    this.buffered = undefined;
+                }
+            });
+        }
+        this.buffered.push(message);
+    }
+
+    close(): void {
+        this.transport.close();
+    }
+}
+
+/**
  * Sometimes we may use connections that didn't require an initial request to
  * connect the two peers. In such a scenario, one peer might start using the
  * connection before the remote peer started listening (timing issue).
@@ -241,7 +301,7 @@ export class DeferredConnection<T> extends AbstractConnection<T> {
  * process is forked, but listeners are only eventually attached once the
  * running code initializes itself asynchronously._
  */
-export function waitForRemote(connection: Connection<any>): Promise<Connection<any>> {
+export function waitForRemote<C extends Connection<any>>(connection: C): Promise<C> {
     return new Promise((resolve, reject) => {
         const disposables = new DisposableCollection();
         connection.onClose(() => {

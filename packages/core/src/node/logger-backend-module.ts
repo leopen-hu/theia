@@ -15,8 +15,9 @@
 // *****************************************************************************
 
 import { ContainerModule, interfaces } from 'inversify';
+import { BackendAndFrontend, ServiceContribution } from '../common';
 import { ILogger, Logger, LoggerFactory, LoggerName, rootLoggerName, setRootLogger } from '../common/logger';
-import { ILoggerServer } from '../common/logger-protocol';
+import { ILoggerServer, loggerPath } from '../common/logger-protocol';
 import { BackendApplicationContribution } from './backend-application';
 import { CliContribution } from './cli';
 import { ConsoleLoggerServer } from './console-logger-server';
@@ -56,4 +57,10 @@ export const loggerBackendModule = new ContainerModule(bind => {
             }
         }))
         .inSingletonScope();
+    bind(ServiceContribution)
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
+            [loggerPath, () => ctx.container.get(ILoggerServer)]
+        ))
+        .inSingletonScope()
+        .whenTargetNamed(BackendAndFrontend);
 });

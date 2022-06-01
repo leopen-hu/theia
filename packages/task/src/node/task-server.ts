@@ -14,7 +14,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { inject, injectable, named, preDestroy } from '@theia/core/shared/inversify';
+import { inject, injectable, named } from '@theia/core/shared/inversify';
 import { Disposable, DisposableCollection, Emitter, Event, ILogger } from '@theia/core';
 import {
     TaskExitedEvent,
@@ -35,12 +35,13 @@ import { CustomTask } from './custom/custom-task';
 @injectable()
 export class TaskServerImpl implements TaskServer, Disposable {
 
-    protected onBackgroundTaskEndedEmitter = new Emitter<BackgroundTaskEndedEvent>();
-    protected onDidEndTaskProcessEmitter = new Emitter<TaskExitedEvent>();
-    protected onDidProcessTaskOutputEmitter = new Emitter<TaskOutputProcessedEvent>();
-    protected onDidStartTaskProcessEmitter = new Emitter<TaskInfo>();
-    protected onTaskCreatedEmitter = new Emitter<TaskInfo>();
-    protected onTaskExitEmitter = new Emitter<TaskExitedEvent>();
+    protected disposables = new DisposableCollection();
+    protected onBackgroundTaskEndedEmitter = this.disposables.pushThru(new Emitter<BackgroundTaskEndedEvent>());
+    protected onDidEndTaskProcessEmitter = this.disposables.pushThru(new Emitter<TaskExitedEvent>());
+    protected onDidProcessTaskOutputEmitter = this.disposables.pushThru(new Emitter<TaskOutputProcessedEvent>());
+    protected onDidStartTaskProcessEmitter = this.disposables.pushThru(new Emitter<TaskInfo>());
+    protected onTaskCreatedEmitter = this.disposables.pushThru(new Emitter<TaskInfo>());
+    protected onTaskExitEmitter = this.disposables.pushThru(new Emitter<TaskExitedEvent>());
 
     get onBackgroundTaskEnded(): Event<BackgroundTaskEndedEvent> {
         return this.onBackgroundTaskEndedEmitter.event;
@@ -85,8 +86,8 @@ export class TaskServerImpl implements TaskServer, Disposable {
     /** task context - {task id - problem collector} */
     private problemCollectors: Map<string, Map<number, ProblemCollector>> = new Map();
 
-    @preDestroy()
     dispose(): void {
+        this.disposables.dispose();
         for (const toDispose of this.toDispose.values()) {
             toDispose.dispose();
         }

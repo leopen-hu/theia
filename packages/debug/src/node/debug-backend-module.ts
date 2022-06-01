@@ -14,7 +14,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { AnyConnection, BackendAndFrontend, bindContributionProvider, ConnectionHandler, ILogger, RouteHandlerProvider } from '@theia/core/lib/common';
+import { AnyConnection, BackendAndFrontend, bindContributionProvider, ConnectionHandler, ContainerScope, ILogger, RouteHandlerProvider } from '@theia/core/lib/common';
 import { ContainerModule } from '@theia/core/shared/inversify';
 import {
     ConnectionAsChannel,
@@ -40,7 +40,9 @@ const debugConnectionModule = ConnectionContainerModule.create(({ bind, bindBack
     bindContributionProvider(bind, DebugAdapterContribution);
     bind(DebugAdapterContributionRegistry).toSelf().inSingletonScope();
 
-    bind(DebugService).to(DebugServiceImpl).inSingletonScope();
+    bind(DebugServiceImpl).toSelf().inSingletonScope();
+    bind(DebugService).toService(DebugServiceImpl);
+    bind(ContainerScope.Destroy).toService(DebugServiceImpl);
     bindBackendService(DebugPath, DebugService);
 });
 

@@ -51,7 +51,7 @@ export interface IBaseTerminalServer extends IBaseTerminalEvents {
     getCwdURI(id: number): Promise<string>;
     resize(id: number, cols: number, rows: number): Promise<void>;
     attach(id: number): Promise<number>;
-    onAttachAttempted(id: number): Promise<void>;
+    attachAttempted(id: number): Promise<void>;
     close(id: number): Promise<void>;
     getDefaultShell(): Promise<string>;
 

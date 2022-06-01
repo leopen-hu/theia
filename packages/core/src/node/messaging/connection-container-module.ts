@@ -17,7 +17,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 import { ContainerModule, interfaces } from 'inversify';
-import { BackendAndFrontend, ProxyProvider, ServiceContribution, serviceIdentifier } from '../../common';
+import { BackendAndFrontend, Disposable, ProxyProvider, ServiceContribution, serviceIdentifier } from '../../common';
 import Route = require('route-parser');
 
 export type BindFrontendService = <T extends object>(path: string, serviceIdentifier: interfaces.ServiceIdentifier<T>) => interfaces.BindingOnSyntax<T>;
@@ -44,10 +44,13 @@ export namespace ConnectionContainerModuleApi {
             const bindBackendService: BindBackendService = (path, identifier, onActivation) => {
                 const route = new Route(path);
                 bind(ServiceContribution)
-                    .toDynamicValue(ctx => (serviceId, params) => {
+                    .toDynamicValue(ctx => (serviceId, params, lifecycle) => {
                         const match = route.match(serviceId);
                         if (match) {
-                            const service = ctx.container.get(identifier);
+                            let service: any = ctx.container.get(identifier);
+                            if (Disposable.is(service)) {
+                                service = lifecycle.track(service).ref();
+                            }
                             return onActivation?.(service) ?? service;
                         }
                     })

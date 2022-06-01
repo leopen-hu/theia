@@ -31,7 +31,7 @@ export default new ContainerModule(bind => {
     bind(WsRequestValidatorContribution).toService(MiniBrowserWsRequestValidator);
     bind(MiniBrowserService).toService(MiniBrowserEndpoint);
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [MiniBrowserServicePath, () => ctx.container.get(MiniBrowserService)]
         ))
         .inSingletonScope()

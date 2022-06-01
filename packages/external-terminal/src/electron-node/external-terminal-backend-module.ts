@@ -28,7 +28,7 @@ export function bindExternalTerminalService(bind: interfaces.Bind): void {
     bind(serviceProvider).toSelf().inSingletonScope();
     bind(ExternalTerminalService).toService(serviceProvider);
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [externalTerminalServicePath, () => ctx.container.get(ExternalTerminalService)]
         ))
         .inSingletonScope()

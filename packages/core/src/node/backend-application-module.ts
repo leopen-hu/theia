@@ -18,8 +18,8 @@ import { ContainerModule, decorate, injectable } from 'inversify';
 import { ApplicationPackage } from '@theia/application-package';
 import { REQUEST_SERVICE_PATH } from '@theia/request';
 import {
-    bindContributionProvider, MessageService, MessageClient,
-    CommandService, commandServicePath, messageServicePath, BackendAndFrontend, ServiceContribution, ProxyProvider
+    bindContributionProvider, MessageService,
+    CommandService, commandServicePath, messageServicePath, BackendAndFrontend, ServiceContribution, ProxyProvider, MessageServer, DefaultMessageService, NullMessageServer
 } from '../common';
 import { BackendApplication, BackendApplicationContribution, BackendApplicationCliContribution, BackendApplicationServer } from './backend-application';
 import { CliManager, CliContribution } from './cli';
@@ -42,12 +42,12 @@ import { BackendRequestFacade } from './request/backend-request-facade';
 decorate(injectable(), ApplicationPackage);
 
 const backendAndFrontendModule = new ContainerModule(bind => {
-    bind(MessageService).toSelf().inSingletonScope();
+    bind(MessageService).to(DefaultMessageService).inSingletonScope();
     // #region proxies to frontend services
     bind(CommandService)
         .toDynamicValue(ctx => ctx.container.getNamed(ProxyProvider, BackendAndFrontend).getProxy(commandServicePath))
         .inSingletonScope();
-    bind(MessageClient)
+    bind(MessageServer)
         .toDynamicValue(ctx => ctx.container.getNamed(ProxyProvider, BackendAndFrontend).getProxy(messageServicePath))
         .inSingletonScope();
     bind(QuickPickService)
@@ -60,6 +60,9 @@ export const backendApplicationModule = new ContainerModule(bind => {
     bind(ContainerModule)
         .toConstantValue(backendAndFrontendModule)
         .whenTargetNamed(BackendAndFrontend);
+
+    bind(MessageServer).toConstantValue(NullMessageServer);
+    bind(MessageService).to(DefaultMessageService).inSingletonScope();
 
     bind(CliManager).toSelf().inSingletonScope();
     bindContributionProvider(bind, CliContribution);
@@ -114,7 +117,7 @@ export const backendApplicationModule = new ContainerModule(bind => {
     bindBackendStopwatchServer(bind);
 
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [applicationPath, () => ctx.container.get(ApplicationServer)],
             [envVariablesPath, () => ctx.container.get(EnvVariablesServer)],
             [keytarServicePath, () => ctx.container.get(KeytarService)],

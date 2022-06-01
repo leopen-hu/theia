@@ -232,6 +232,9 @@ export class Emitter<T = any> {
     get event(): Event<T> {
         if (!this._event) {
             this._event = Object.assign((listener: (e: T) => any, thisArgs?: any, disposables?: DisposableGroup) => {
+                if (typeof listener !== 'function') {
+                    throw new Error('listener must be a function');
+                }
                 if (!this._callbacks) {
                     this._callbacks = new CallbackList();
                 }

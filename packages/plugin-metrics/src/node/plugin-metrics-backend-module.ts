@@ -38,7 +38,7 @@ export default new ContainerModule((bind, unbind, isBound, rebind) => {
     bind(ServiceContribution)
         .toDynamicValue(ctx => {
             const { clients } = ctx.container.get(PluginMetricsContributor);
-            return ServiceContribution.record(
+            return ServiceContribution.fromEntries(
                 [metricsJsonRpcPath, (params, lifecycle) => {
                     const metrics = ctx.container.get<PluginMetrics>(PluginMetrics);
                     clients.add(metrics);

@@ -62,7 +62,7 @@ export class SocketIoServer {
         return new socket_io.Server(httpServer, {
             serveClient: false,
             pingInterval: 30_000, // ms = 30 seconds
-            pingTimeout: Infinity // No timeout: keep the connections opened forever...
+            pingTimeout: 3_600_000 // ms = 1 hour, virtually no timeout
         });
     }
 
@@ -80,7 +80,7 @@ export class SocketIoServer {
 
     protected createRouterMiddleware(router: Router<Connection<any>, FrontendConnectionParams>): SocketIoMiddleware {
         return (socket, next) => {
-            const frontendId = this.getFrontendId(socket.handshake.auth);
+            const frontendId = this.getFrontendId(socket);
             if (!frontendId) {
                 console.debug('missing frontendId field in socket auth');
                 return next(new Error('invalid connection'));
@@ -99,8 +99,8 @@ export class SocketIoServer {
         };
     }
 
-    protected getFrontendId(auth: Record<string, any>): string | undefined {
-        const { THEIA_FRONTEND_ID } = auth;
+    protected getFrontendId(socket: socket_io.Socket): string | undefined {
+        const { THEIA_FRONTEND_ID } = socket.handshake.query;
         if (typeof THEIA_FRONTEND_ID === 'string') {
             return THEIA_FRONTEND_ID;
         }

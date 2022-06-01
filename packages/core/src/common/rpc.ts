@@ -14,22 +14,56 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+/* eslint-disable @typescript-eslint/no-explicit-any, no-null/no-null */
 
-import { inject, injectable } from 'inversify';
 import { Disposable, DisposableCollection } from './disposable';
 import { CancellationToken } from './cancellation';
 import { Emitter, Event } from './event';
 import { Proxied, ProxyProvider } from './proxy';
 import { Reflection } from './reflection';
 import { NonArray, serviceIdentifier } from './types';
-// import { Rc, RcFactory } from './reference-counter';
+
+/**
+ * Methods to wire JavaScript {@link Proxy} instances over {@link RpcConnection}s.
+ */
+export interface Rpc {
+
+    /**
+     * Create a JS proxy that translates method calls into RPC requests.
+     * Calling `proxy.dispose` will close the underlying connection,
+     * you most likely want to use this on ephemeral proxies only!
+     */
+    createProxy<T>(rpcConnection: RpcConnection, options?: RpcProxyOptions): Proxied<T>
+
+    /**
+     * Serve {@link rpcConnection} by calling methods on {@link server}.
+     *
+     * It will only "un-hook" events when the {@link rpcConnection} closes.
+     */
+    serve<T extends RpcServer>(server: NonArray<T>, rpcConnection: RpcConnection): void
+}
+export namespace RpcApi {
+
+    // #region decorators
+
+    export function Ignore(): MethodDecorator {
+        return Reflection.Ignore();
+    }
+
+    // #endregion
+}
+export const Rpc = Object.assign(
+    serviceIdentifier<Rpc>('Rpc'),
+    RpcApi
+);
 
 /**
  * Represents a scoped connection to a remote service on which to call methods.
  *
  * There should be a 1-to-1 relationship between a `RpcConnection` and the
  * remote service it represents.
+ *
+ * `RpcConnection`s must support {@link ApplicationError}s' serialization.
  */
 export const RpcConnection = serviceIdentifier<RpcConnection>('RpcConnection');
 export interface RpcConnection {
@@ -38,80 +72,30 @@ export interface RpcConnection {
     handleNotification(handler: (method: string, params: any[]) => void): void
     sendRequest<T>(method: string, params: any[]): Promise<T>
     sendNotification(method: string, params: any[]): void
-    /**
-     * Terminate this `RpcConnection` and close the underlying connection.
-     */
     close(): void
 }
-
-// export interface RpcConnectionTransformerCallbacks {
-//     // incoming
-//     transformIncomingResponseResult?(method: string, params: any[], result: any): any
-//     transformIncomingResponseError?(method: string, params: any[], error: any): any
-//     // outgoing
-//     transformOutgoingResponseResult?(method: string, params: any[], result: any): any
-//     transformOutgoingResponseError?(method: string, params: any[], error: any): any
-// }
-
-// export const RpcConnectionTransformer = serviceIdentifier<RpcConnectionTransformer>('RpcConnectionTransformer');
-// export type RpcConnectionTransformer = (RpcConnection: RpcConnection, callbacks: RpcConnectionTransformerCallbacks) => RpcConnection;
 
 export interface RpcServer {
     [key: string | symbol]: any
 }
 
-export type NotArray<T> = T extends any[] ? never : T;
-
-/**
- * Methods to wire JavaScript {@link Proxy} instances over {@link RpcConnection}s.
- */
-export const Rpc = serviceIdentifier<Rpc>('Rpc');
-export interface Rpc {
-
-    /**
-     * Create a JS proxy that translates method calls into RPC requests.
-     * Calling `proxy.dispose` will close the underlying connection,
-     * you most likely want to use this on ephemeral proxies only!
-     */
-    createProxy<T>(rpcConnection: RpcConnection): Proxied<T>
-
-    /**
-     * Serve {@link rpcConnection} by calling methods on {@link server}.
-     *
-     * It will only "un-hook" events when the {@link rpcConnection} closes.
-     */
-    serve<T extends RpcServer>(server: NonArray<T>, rpcConnection: RpcConnection): void
-
-    // /**
-    //  * Serve {@link rpcConnection} by calling methods on {@link server}.
-    //  *
-    //  * It will try to dispose {@link instance} when the {@link rpcConnection} closes.
-    //  *
-    //  * If you called this method with the same {@link instance} multiple times,
-    //  * it will only dispose of the instance once all attached connections are
-    //  * closed.
-    //  */
-    // serveRc(instance: RpcServer & Disposable, rpcConnection: RpcConnection): void;
+export interface RpcProxyOptions {
+    disposeCallback?(): void
 }
 
 /**
  * @internal
  */
-@injectable()
 export class DefaultRpc implements Rpc {
 
-    // protected rcs = new WeakMap<RpcServer, Rc<Disposable>>();
+    constructor(
+        protected reflection: Reflection
+    ) { }
 
-    // @inject(RcFactory)
-    // protected rcFactory: RcFactory;
-
-    @inject(Reflection)
-    protected reflection: Reflection;
-
-    createProxy<T>(rpcConnection: RpcConnection): Proxied<T> {
+    createProxy<T>(rpcConnection: RpcConnection, options?: RpcProxyOptions): Proxied<T> {
         // eslint-disable-next-line no-null/no-null
         const emptyObject = Object.freeze(Object.create(null));
-        const rpcProxyHandler = new RpcProxyHandler(rpcConnection, this.reflection);
+        const rpcProxyHandler = new RpcProxyHandler(rpcConnection, this.reflection, options?.disposeCallback);
         return new Proxy(emptyObject, rpcProxyHandler);
     }
 
@@ -119,27 +103,12 @@ export class DefaultRpc implements Rpc {
         rpcConnection.handleRequest((method, params, token) => server[method](...params, token));
         const disposables = new DisposableCollection();
         this.reflection.getEventNames(server).forEach(eventName => {
-            const event: Event<unknown> = server[eventName];
-            event(value => rpcConnection.sendNotification(eventName, [value]), undefined, disposables);
+            server[eventName].call(server, (value: any) => {
+                rpcConnection.sendNotification(eventName, [value]);
+            }, undefined, disposables);
         });
         rpcConnection.onClose(() => disposables.dispose());
     }
-
-    // serveRc(instance: RpcServer & Disposable, rpcConnection: RpcConnection): void {
-    //     let rc = this.rcs.get(instance);
-    //     if (rc) {
-    //         rc = rc.clone();
-    //     } else {
-    //         this.rcs.set(instance, rc = this.rcFactory(instance));
-    //     }
-    //     const disposables = new DisposableCollection(rc);
-    //     rpcConnection.onRequest((method, params, token) => instance[method](...params, token));
-    //     this.reflection.getEventNames(instance).forEach(eventName => {
-    //         const event: Event<unknown> = instance[eventName];
-    //         event(value => rpcConnection.sendNotification(eventName, [value]), undefined, disposables);
-    //     });
-    //     rpcConnection.onClose(() => disposables.dispose());
-    // }
 }
 
 /**
@@ -150,14 +119,14 @@ export type RpcConnectionProvider = (serviceId: string, serviceParams?: any) => 
 /**
  * @internal
  */
-@injectable()
 export class DefaultRpcProxyProvider implements ProxyProvider {
 
-    protected rpcConnectionProvider?: RpcConnectionProvider;
     protected connectionToProxyCache = new WeakMap<RpcConnection, any>();
+    protected rpcConnectionProvider?: RpcConnectionProvider;
 
-    @inject(Rpc)
-    protected rpcProxying: Rpc;
+    constructor(
+        protected rpc: Rpc
+    ) { }
 
     initialize(rpcConnectionProvider: RpcConnectionProvider): ProxyProvider {
         this.rpcConnectionProvider = rpcConnectionProvider;
@@ -168,7 +137,7 @@ export class DefaultRpcProxyProvider implements ProxyProvider {
         const rpcConnection = this.rpcConnectionProvider!(serviceId, params);
         let proxy = this.connectionToProxyCache.get(rpcConnection);
         if (!proxy) {
-            this.connectionToProxyCache.set(rpcConnection, proxy = this.rpcProxying.createProxy(rpcConnection));
+            this.connectionToProxyCache.set(rpcConnection, proxy = this.rpc.createProxy(rpcConnection));
         }
         return proxy;
     }
@@ -180,88 +149,54 @@ export class DefaultRpcProxyProvider implements ProxyProvider {
 export class RpcProxyHandler<T extends object> implements ProxyHandler<T>, Disposable {
 
     protected emitters = new Map<string, Emitter>();
-    protected cache = new Map<string | symbol, any>();
+    protected properties = new Map<string | symbol, any>();
     protected disposed = false;
 
     constructor(
         protected rpcConnection: RpcConnection,
         protected reflection: Reflection,
+        protected disposeCallback?: () => void
     ) {
-        this.cache.set('dispose', () => {
-            if (!this.disposed) {
-                this.disposed = true;
-                rpcConnection.close();
-            }
-        });
+        this.properties.set('dispose', () => this.dispose());
         rpcConnection.handleNotification((eventName, params) => {
             this.emitters.get(eventName)?.fire(params[0]);
         });
         rpcConnection.onClose(() => this.dispose());
     }
 
-    get(target: T, property: string | symbol, receiver: T): any {
+    get(target: T, propertyKey: string | symbol, receiver: T): (...params: any[]) => any {
         if (this.disposed) {
             throw new Error('this instance is no longer valid!');
         }
-        if (typeof property !== 'string') {
-            throw new Error('you can only index this proxy with strings');
+        if (typeof propertyKey !== 'string') {
+            return this.properties.get(propertyKey);
         }
-        let returnValue = this.cache.get(property);
+        let returnValue = this.properties.get(propertyKey);
         if (!returnValue) {
-            if (this.reflection.isEventName(property)) {
+            if (this.reflection.isEventName(propertyKey)) {
                 const emitter = new Emitter();
-                this.emitters.set(property, emitter);
+                this.emitters.set(propertyKey, emitter);
                 returnValue = emitter.event;
             } else {
-                returnValue = async (...params: any[]) => this.rpcConnection.sendRequest(property, params);
+                returnValue = async (...params: any[]) => this.rpcConnection.sendRequest(propertyKey, params);
             }
-            this.cache.set(property, returnValue);
+            this.properties.set(propertyKey, returnValue);
         }
         return returnValue;
     }
 
+    set(target: T, propertyKey: string | symbol, value: any, receiver: T): boolean {
+        this.properties.set(propertyKey, value);
+        return true;
+    }
+
     dispose(): void {
-        this.disposed = true;
-        this.emitters.forEach(emitter => emitter.dispose());
-        this.emitters.clear();
-        this.cache.clear();
+        if (!this.disposed) {
+            this.disposed = true;
+            this.emitters.forEach(emitter => emitter.dispose());
+            this.emitters.clear();
+            this.properties.clear();
+            this.disposeCallback?.();
+        }
     }
 }
-
-// export class DefaultRpcConnectionTransformer implements RpcConnection {
-
-//     constructor(
-//         protected rpcConnection: RpcConnection,
-//         protected callbacks: RpcConnectionTransformerCallbacks
-//     ) { }
-
-//     get onClose(): Event<void> {
-//         return this.rpcConnection.onClose;
-//     }
-
-//     handleNotification(handler: (method: string, params: any[]) => void): void {
-//         return this.rpcConnection.handleNotification(handler);
-//     }
-
-//     handleRequest(handler: (method: string, params: any[], token: CancellationToken) => any): void {
-//         return this.rpcConnection.handleRequest((method, params, token) => Promise.resolve(handler(method, params, token)).then(
-//             result => this.callbacks.transformOutgoingResponseResult?.(method, params, result) ?? result,
-//             error => { throw this.callbacks.transformOutgoingResponseError?.(method, params, error) ?? error; }
-//         ));
-//     }
-
-//     sendNotification(method: string, params: any[]): void {
-//         this.rpcConnection.sendNotification(method, params);
-//     }
-
-//     sendRequest<T>(method: string, params: any[]): Promise<T> {
-//         return this.rpcConnection.sendRequest(method, params).then(
-//             result => this.callbacks.transformIncomingResponseResult?.(method, params, result) ?? result,
-//             error => { throw this.callbacks.transformIncomingResponseError?.(method, params, error) ?? error; }
-//         );
-//     }
-
-//     close(): void {
-//         this.rpcConnection.close();
-//     }
-// }

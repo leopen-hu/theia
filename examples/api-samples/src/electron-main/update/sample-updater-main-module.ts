@@ -23,7 +23,7 @@ import { ElectronMainAndFrontend } from '@theia/core/lib/electron-common';
 
 export const SampleUpdaterElectronMainAndFrontendContainerModule = new ContainerModule(bind => {
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             // This will return the same singleton instance from the main container module
             // for `SampleUpdater`, but this is by design here.
             [SampleUpdaterPath, () => ctx.container.get(SampleUpdater)]

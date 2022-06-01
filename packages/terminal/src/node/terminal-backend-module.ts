@@ -16,19 +16,22 @@
 
 import { ContainerModule, interfaces } from '@theia/core/shared/inversify';
 import { ShellProcess, ShellProcessFactory, ShellProcessOptions } from './shell-process';
-import { ITerminalServer, RemoteTerminalFactory, terminalPath, terminalsPath } from '../common/terminal-protocol';
-import { IBaseTerminalServer, TerminalWatcher } from '../common/base-terminal-protocol';
+import { ITerminalServer, RemoteTerminalFactory, REMOTE_TERMINAL_ROUTE, terminalPath } from '../common/terminal-protocol';
+import { IBaseTerminalServer, TerminalEnvironmentStore, TerminalWatcher, TERMINAL_ENVIRONMENT_STORE_PATH } from '../common/base-terminal-protocol';
 import { TerminalServer } from './terminal-server';
 import { IShellTerminalServer, shellTerminalPath } from '../common/shell-terminal-protocol';
 import { ShellTerminalServer } from '../node/shell-terminal-server';
 import { createCommonBindings } from '../common/terminal-common-module';
-import { BackendAndFrontend, Event, ServiceContribution } from '@theia/core';
+import { BackendAndFrontend, Event, ProxyProvider, ServiceContribution } from '@theia/core';
 import { ProcessManager, TerminalProcess } from '@theia/process/lib/node';
 import { RemoteTerminalImpl } from './remote-terminal-impl';
 
 export const TerminalContainerModule = new ContainerModule(bind => {
     bind(ITerminalServer).to(TerminalServer).inSingletonScope();
     bind(IShellTerminalServer).to(ShellTerminalServer).inSingletonScope();
+    bind(TerminalEnvironmentStore)
+        .toDynamicValue(ctx => ctx.container.getNamed(ProxyProvider, BackendAndFrontend).getProxy(TERMINAL_ENVIRONMENT_STORE_PATH))
+        .inSingletonScope();
     bind(TerminalWatcher)
         .toDynamicValue(ctx => {
             const terminalServer = ctx.container.get(ITerminalServer);
@@ -40,20 +43,28 @@ export const TerminalContainerModule = new ContainerModule(bind => {
         })
         .inSingletonScope();
     bind(ServiceContribution)
-        .toDynamicValue(ctx => {
-            const remoteTerminalFactory = ctx.container.get(RemoteTerminalFactory);
-            return ServiceContribution.record(
-                [terminalPath, () => ctx.container.get(ITerminalServer)],
-                [shellTerminalPath, () => ctx.container.get(IShellTerminalServer)],
-                [terminalsPath, (params, lifecycle) => lifecycle.track(remoteTerminalFactory(params.terminalId))]
-            );
-        })
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
+            [terminalPath, () => ctx.container.get(ITerminalServer)],
+            [shellTerminalPath, () => ctx.container.get(IShellTerminalServer)]
+        ))
         .inSingletonScope()
         .whenTargetNamed(BackendAndFrontend);
+
+    bind(ServiceContribution)
+        .toDynamicValue(ctx => {
+            const remoteTerminalFactory = ctx.container.get(RemoteTerminalFactory);
+            return ServiceContribution.fromRoute(
+                REMOTE_TERMINAL_ROUTE,
+                (matched, params, lifecycle) => lifecycle.track(remoteTerminalFactory(parseInt(params.terminalId, 10))).ref()
+            );
+        })
+        .inSingletonScope();
 });
 
 export default new ContainerModule(bind => {
-    bind(ContainerModule).toConstantValue(TerminalContainerModule).whenTargetNamed(BackendAndFrontend);
+    bind(ContainerModule)
+        .toConstantValue(TerminalContainerModule)
+        .whenTargetNamed(BackendAndFrontend);
 
     bind(ShellProcess).toSelf().inTransientScope();
     bind(ShellProcessFactory).toFactory(ctx => (options: ShellProcessOptions) => {
@@ -79,7 +90,7 @@ export default new ContainerModule(bind => {
 });
 
 /**
- * @deprecated since 1.25.0
+ * @deprecated since 1.26.0
  */
 export function bindTerminalServer(bind: interfaces.Bind, { path, identifier, constructor }: {
     path: string,
@@ -91,7 +102,7 @@ export function bindTerminalServer(bind: interfaces.Bind, { path, identifier, co
 }): void {
     bind<IBaseTerminalServer>(identifier).to(constructor).inSingletonScope();
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [path, () => ctx.container.get(identifier)]
         ))
         .inSingletonScope();

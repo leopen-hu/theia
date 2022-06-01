@@ -25,7 +25,7 @@ import { TabBarToolbarContribution } from '@theia/core/lib/browser/shell/tab-bar
 import { TerminalFrontendContribution } from './terminal-frontend-contribution';
 import { TerminalWidgetImpl, TERMINAL_WIDGET_FACTORY_ID } from './terminal-widget-impl';
 import { TerminalWidget, TerminalWidgetOptions } from './base/terminal-widget';
-import { ITerminalServer, RemoteTerminalFactory, terminalPath, terminalsPath } from '../common/terminal-protocol';
+import { ITerminalServer, RemoteTerminal, RemoteTerminalFactory, REMOTE_TERMINAL_ROUTE, terminalPath } from '../common/terminal-protocol';
 import { IShellTerminalServer, shellTerminalPath, ShellTerminalServerProxy } from '../common/shell-terminal-protocol';
 import { TerminalActiveContext, TerminalSearchVisibleContext } from './terminal-keybinding-contexts';
 import { createCommonBindings } from '../common/terminal-common-module';
@@ -53,7 +53,9 @@ export default new ContainerModule(bind => {
     bind(TerminalWidget).to(TerminalWidgetImpl).inTransientScope();
 
     bind(RemoteTerminalFactory)
-        .toDynamicValue(ctx => terminalId => ctx.container.getNamed(ProxyProvider, BackendAndFrontend).getProxy(terminalsPath, { terminalId }))
+        .toDynamicValue(ctx => terminalId => ctx.container.getNamed(ProxyProvider, BackendAndFrontend).getProxy<RemoteTerminal>(
+            REMOTE_TERMINAL_ROUTE.reverse({ terminalId: terminalId.toString(10) }) as string
+        ))
         .inSingletonScope();
 
     let terminalNum = 0;
@@ -96,7 +98,7 @@ export default new ContainerModule(bind => {
 
     bind(TerminalEnvironmentStore).to(TerminalEnvironmentStoreImpl).inSingletonScope();
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [TERMINAL_ENVIRONMENT_STORE_PATH, () => ctx.container.get(TerminalEnvironmentStore)]
         ))
         .inSingletonScope();

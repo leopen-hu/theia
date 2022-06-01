@@ -14,7 +14,7 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
-import { injectable, inject, preDestroy } from '@theia/core/shared/inversify';
+import { injectable, inject } from '@theia/core/shared/inversify';
 import { DebugConfiguration } from '../common/debug-configuration';
 import { DebugService, DebuggerDescription } from '../common/debug-service';
 import { IJSONSchema, IJSONSchemaSnippet } from '@theia/core/lib/common/json-schema';
@@ -34,7 +34,6 @@ export class DebugServiceImpl implements DebugService {
     @inject(DebugAdapterContributionRegistry)
     protected readonly registry: DebugAdapterContributionRegistry;
 
-    @preDestroy()
     dispose(): void {
         this.terminateDebugSession();
     }

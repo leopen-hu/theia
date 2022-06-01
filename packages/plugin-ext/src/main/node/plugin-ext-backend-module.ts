@@ -69,7 +69,7 @@ export function bindMainBackend(bind: interfaces.Bind): void {
     bind(PluginPathsService).to(PluginPathsServiceImpl).inSingletonScope();
 
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [pluginPathsServicePath, () => ctx.container.get(PluginPathsService)],
             [pluginServerJsonRpcPath, () => ctx.container.get(PluginServer)]
         ))

@@ -61,9 +61,10 @@ export { Reflection } from './reflection';
 export { RpcConnection, Rpc } from './rpc';
 export { ConnectionTransformer, MessageTransformer } from './connection-transformer';
 export { ConnectionMultiplexer } from './connection-multiplexer';
-export { ContainerScope, ContainerScopeReady } from './container-scope';
+export { ContainerScope } from './container-scope';
 export { FrontendConnectionParams } from './frontend-connection-params';
 export { Broker, Handler, Middleware, Router } from './routing';
 export { RouteHandlerProvider, RouteHandlerParams, RouteMatch, RouteMatcher } from './route-handler';
+export { Rc } from './reference-counter';
 
 export { BackendAndFrontend } from './messaging/messages';

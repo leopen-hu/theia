@@ -23,7 +23,7 @@ export default new ContainerModule(bind => {
     bind(ElectronKeyboardLayoutProvider).toSelf().inSingletonScope();
     bind(KeyboardLayoutProvider).toService(ElectronKeyboardLayoutProvider);
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [keyboardPath, () => ctx.container.get(KeyboardLayoutProvider)]
         ))
         .inSingletonScope();

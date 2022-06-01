@@ -86,8 +86,8 @@ export class HostedPluginProcess implements ServerPluginRunner {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    public handleMessage(pluginHostId: string, jsonMessage: any): void {
-        this.childProcess?.send(jsonMessage);
+    public handleMessage(pluginHostId: string, message: any): void {
+        this.childProcess?.send(message);
     }
 
     async terminatePluginServer(): Promise<void> {
@@ -189,12 +189,12 @@ export class HostedPluginProcess implements ServerPluginRunner {
         createInterface(childProcess.stderr!).on('line', line => this.logger.error(`[${options.serverName}: ${childProcess.pid}] ${line}`));
 
         this.logger.debug(`[${options.serverName}: ${childProcess.pid}] IPC started`);
-        childProcess.once('exit', (code: number, signal: string) => this.onChildProcessExit(options.serverName, childProcess.pid, code, signal));
-        childProcess.on('error', err => this.onChildProcessError(err));
+        childProcess.once('exit', (code: number, signal: string) => this.handleChildProcessExit(options.serverName, childProcess.pid, code, signal));
+        childProcess.on('error', err => this.handleChildProcessError(err));
         return childProcess;
     }
 
-    private onChildProcessExit(serverName: string, pid: number, code: number, signal: string): void {
+    private handleChildProcessExit(serverName: string, pid: number, code: number, signal: string): void {
         if (this.terminatingPluginServer) {
             return;
         }
@@ -210,7 +210,7 @@ export class HostedPluginProcess implements ServerPluginRunner {
         this.messageService.error(message + ' ' + hintMessage, { timeout: 15 * 60 * 1000 });
     }
 
-    private onChildProcessError(err: Error): void {
+    private handleChildProcessError(err: Error): void {
         this.logger.error(`Error from plugin host: ${err.message}`);
     }
 

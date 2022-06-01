@@ -17,7 +17,9 @@
 import nsfw = require('@theia/core/shared/nsfw');
 import path = require('path');
 import { promises as fs } from 'fs';
-import { Event, Emitter, wait, DisposableCollection } from '@theia/core';
+import { DisposableCollection } from '@theia/core/lib/common/disposable';
+import { Event, Emitter } from '@theia/core/lib/common/event';
+import { wait } from '@theia/core/lib/common/promise-util';
 import { inject, injectable, optional } from '@theia/core/shared/inversify';
 import { DidFilesChangedParams, FileChangeType, FileSystemWatcherErrorParams, FileSystemWatcherOptions, FileSystemWatcherServer, WatchOptions } from '../common';
 import { FileChangeCollection } from './file-change-collection';
@@ -52,7 +54,7 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
 
     async watchFileChanges(uri: string, options?: WatchOptions): Promise<number> {
         const id = this.getUniqueWatcherId();
-        const watcher = this.createWatcher(id, uri, options);
+        const watcher = this.createWatcher(id, FileUri.fsPath(uri), options);
         watcher.onDidFilesChanged(event => this.onDidFilesChangedEmitter.fire({ ...event, watcherId: id }));
         watcher.onError(event => this.onErrorEmitter.fire({ ...event, watcherId: id }));
         this.watchers.set(id, watcher);
@@ -76,7 +78,7 @@ export class NsfwFileSystemWatcherServer implements FileSystemWatcherServer {
     }
 }
 
-class NsfwWatcher {
+export class NsfwWatcher {
 
     protected stopRequested = false;
     protected watcherPromise: Promise<nsfw.NSFW | undefined>;
@@ -88,7 +90,7 @@ class NsfwWatcher {
 
     constructor(
         readonly id: number,
-        readonly uri: string,
+        readonly filePath: string,
         readonly ignored: string[] = [],
     ) {
         this.ignored = ignored;
@@ -112,22 +114,21 @@ class NsfwWatcher {
         await this.watcherPromise.then(watcher => watcher?.stop());
     }
 
-    protected async start(): Promise<nsfw.NSFW> {
-        while (!await this.fileExists(this.uri)) {
-            this.checkStopRequested();
+    protected async start(): Promise<nsfw.NSFW | undefined> {
+        while (!this.stopRequested && !await this.fileExists(this.filePath)) {
             await wait(500);
-            this.checkStopRequested();
         }
-        this.checkStopRequested();
-        return nsfw(this.uri, events => this.processEvents(events), {
+        if (this.stopRequested) {
+            return;
+        }
+        const watcher = await nsfw(this.filePath, events => this.processEvents(events), {
             errorCallback: error => this.onErrorEmitter.fire(error)
         });
-    }
-
-    protected checkStopRequested(): void {
         if (this.stopRequested) {
-            throw new Error('watcher stop requested');
+            return;
         }
+        await watcher.start();
+        return watcher;
     }
 
     protected processEvents(events: nsfw.FileChangeEvent[]): void {

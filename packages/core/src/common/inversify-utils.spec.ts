@@ -16,7 +16,7 @@
 
 import { expect } from 'chai';
 import { Container, interfaces } from 'inversify';
-import { collectRecursive, getAllOptional } from './inversify-utils';
+import { collectRecursive } from './inversify-utils';
 
 describe('Inversify Utilities', () => {
 
@@ -25,7 +25,7 @@ describe('Inversify Utilities', () => {
         const parent = new Container();
         parent.bind(identifier).toConstantValue(1);
         const child = parent.createChild();
-        expect(collectRecursive(child, container => getAllOptional(container, identifier)))
+        expect(collectRecursive(child, container => container.isBound(identifier), container => container.getAll(identifier)))
             .members([1], 'We should not get duplicates!');
         expect(child.parent)
             .equal(parent, 'The parent should be restored!');

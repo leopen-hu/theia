@@ -313,9 +313,21 @@ export class Logger implements ILogger {
     }
     protected format(value: any): any {
         if (value instanceof Error) {
-            return value.stack || value.toString();
+            // Browsers and Node.js don't format Errors the same way...
+            if (typeof navigator !== 'undefined' && typeof Navigator !== 'undefined' && navigator instanceof Navigator) {
+                // Browser:
+                if (value.stack) {
+                    return value.message + '\n' + value.stack;
+                }
+                return value.message;
+            } else {
+                // Node:
+                return value.stack ?? value.message;
+            }
+        } else {
+            // Not an Error instance:
+            return value?.toString() ?? 'undefined';
         }
-        return value;
     }
 
     isTrace(): Promise<boolean> {

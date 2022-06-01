@@ -998,7 +998,7 @@ export class TaskService implements TaskConfigurationClient {
             this.logger.error(errorStr);
             this.messageService.error(errorStr);
             if (taskInfo && typeof taskInfo.terminalId === 'number') {
-                this.shellTerminalServer.onAttachAttempted(taskInfo.terminalId);
+                this.shellTerminalServer.attachAttempted(taskInfo.terminalId);
             }
         }
     }

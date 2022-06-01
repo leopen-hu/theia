@@ -22,7 +22,6 @@ import {
     bindServiceProvider,
     ConnectionMultiplexer,
     ConnectionTransformer,
-    ContainerScopeReady,
     DeferredConnectionFactory,
     DisposableCollection,
     ProxyProvider,
@@ -31,7 +30,7 @@ import {
     ServiceProvider
 } from '../common';
 import { DefaultConnectionMultiplexer } from '../common/connection-multiplexer';
-import { ContainerScope, ContainerScopeFactory } from '../common/container-scope';
+import { ContainerScope } from '../common/container-scope';
 import { bindContributionProvider } from '../common/contribution-provider';
 import { getAllNamedOptional } from '../common/inversify-utils';
 import { DefaultRpcProxyProvider } from '../common/rpc';
@@ -60,7 +59,7 @@ const electronSecurityToken: ElectronSecurityToken = { value: v4() };
  */
 export const ElectronMainAndFrontendContainerModule = new ContainerModule(bind => {
     bindServiceProvider(bind, ElectronMainAndFrontend);
-    bind(ContainerScopeReady)
+    bind(ContainerScope.Init)
         .toFunction(container => {
             const multiplexer = container.getNamed(ConnectionMultiplexer, ElectronMainAndFrontend);
             const serviceProvider = container.getNamed(ServiceProvider, ElectronMainAndFrontend);
@@ -106,7 +105,7 @@ export const ElectronMainAndFrontendContainerModule = new ContainerModule(bind =
         .inSingletonScope()
         .whenTargetNamed(ElectronMainAndFrontend);
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [electronMainWindowServicePath, () => ctx.container.get(ElectronMainWindowService)]
         ))
         .inSingletonScope()
@@ -142,7 +141,7 @@ export default new ContainerModule(bind => {
     bind(ElectronMainApplicationContribution)
         .toDynamicValue(ctx => ({
             onStart(app): void {
-                const containerScopeFactory = ctx.container.get(ContainerScopeFactory);
+                const containerScopeFactory = ctx.container.get(ContainerScope.Factory);
                 app.onDidCreateTheiaWindow(theiaWindow => {
                     recursiveCreateFrontendContainerScope(theiaWindow);
                 });
@@ -169,7 +168,7 @@ export default new ContainerModule(bind => {
                     child.bind(TheiaElectronWindow).toConstantValue(theiaWindow);
                     const modules = ctx.container.getAllNamed(ContainerModule, ElectronMainAndFrontend);
                     child.load(...modules);
-                    const callbacks = getAllNamedOptional(child, ContainerScopeReady, ElectronMainAndFrontend);
+                    const callbacks = getAllNamedOptional(child, ContainerScope.Init, ElectronMainAndFrontend);
                     return containerScopeFactory(child, callbacks);
                 }
             }

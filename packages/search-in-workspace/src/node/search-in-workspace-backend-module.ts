@@ -23,7 +23,7 @@ import { rgPath } from 'vscode-ripgrep';
 export default new ContainerModule(bind => {
     bind(SearchInWorkspaceServer).to(RipgrepSearchInWorkspaceServer);
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [SIW_WS_PATH, () => ctx.container.get(SearchInWorkspaceServer)]
         ))
         .inSingletonScope()

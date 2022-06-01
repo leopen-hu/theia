@@ -36,9 +36,6 @@ export function nullToUndefined<T>(nullable: MaybeNull<T>): MaybeUndefined<T> {
     return undefinable;
 }
 
-export type Deferred<T> = {
-    [P in keyof T]: Promise<T[P]>
-};
 export type RecursivePartial<T> = {
     [P in keyof T]?: T[P] extends Array<infer I>
     ? Array<RecursivePartial<I>>

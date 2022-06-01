@@ -35,7 +35,9 @@ import {
     BackendAndFrontend,
     ServiceContribution,
     MessageService,
-    MessageClient
+    DefaultMessageService,
+    MessageServer,
+    NullMessageServer
 } from '../common';
 import { KeybindingRegistry, KeybindingContext, KeybindingContribution } from './keybinding';
 import { FrontendApplication, FrontendApplicationContribution, DefaultFrontendApplicationContribution } from './frontend-application';
@@ -80,7 +82,7 @@ import { DispatchingProgressClient } from './progress-client';
 import { ProgressStatusBarItem } from './progress-status-bar-item';
 import { TabBarDecoratorService, TabBarDecorator } from './shell/tab-bar-decorator';
 import { ContextMenuContext } from './menu/context-menu-context';
-import { bindResourceProvider, bindMessageService, bindPreferenceService } from './frontend-application-bindings';
+import { bindResourceProvider, bindPreferenceService } from './frontend-application-bindings';
 import { ColorRegistry } from './color-registry';
 import { ColorContribution, ColorApplicationContribution } from './color-application-contribution';
 import { ExternalUriService } from './external-uri-service';
@@ -130,7 +132,7 @@ import { TheiaDockPanel } from './shell/theia-dock-panel';
 import { bindStatusBar } from './status-bar';
 import { MarkdownRenderer, MarkdownRendererFactory, MarkdownRendererImpl } from './markdown-rendering/markdown-renderer';
 
-export { bindResourceProvider, bindMessageService, bindPreferenceService };
+export { bindResourceProvider, bindPreferenceService };
 
 ColorApplicationContribution.initBackground();
 
@@ -246,7 +248,8 @@ export const frontendApplicationModule = new ContainerModule((bind, _unbind, _is
     bindContributionProvider(bind, KeybindingContext);
     bindContributionProvider(bind, KeybindingContribution);
 
-    bind(MessageService).toSelf().inSingletonScope();
+    bind(MessageServer).toConstantValue(NullMessageServer);
+    bind(MessageService).to(DefaultMessageService).inSingletonScope();
 
     bind(LanguageService).toSelf().inSingletonScope();
 
@@ -410,10 +413,10 @@ export const frontendApplicationModule = new ContainerModule((bind, _unbind, _is
         .inSingletonScope();
 
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [quickPickServicePath, () => ctx.container.get(QuickPickService)],
             [commandServicePath, () => ctx.container.get(CommandRegistry)],
-            [messageServicePath, () => ctx.container.get(MessageClient)]
+            [messageServicePath, () => ctx.container.get(MessageServer)]
         ))
         .inSingletonScope()
         .whenTargetNamed(BackendAndFrontend);

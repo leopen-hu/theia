@@ -16,10 +16,9 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { inject, injectable, interfaces } from 'inversify';
+import { interfaces } from 'inversify';
 import { Disposable, DisposableCollection } from './disposable';
 import { serviceIdentifier } from './types';
-import { Rc, RcFactory } from './reference-counter';
 
 /**
  * This is essentially a disposable wrapper around an Inversify `Container`.
@@ -34,21 +33,26 @@ export interface ContainerScope extends Disposable {
      */
     dispose(): void
 }
+export namespace ContainerScope {
 
-export const ContainerScopeFactory = serviceIdentifier<ContainerScopeFactory>('ContainerScopeFactory');
-export type ContainerScopeFactory = (container: interfaces.Container, callbacks?: ContainerScopeReady[]) => ContainerScope;
+    export const Factory = serviceIdentifier<Factory>('ContainerScope.Factory');
+    export type Factory = (container: interfaces.Container, initCallbacks?: Init[]) => ContainerScope;
 
-/**
- * Callback to run once a {@link ContainerScope} is ready.
- *
- * Binding callbacks to this symbol will only work if part of a {@link ContainerScope}.
- */
-export const ContainerScopeReady = serviceIdentifier<ContainerScopeReady>('ContainerScopeReady');
-export type ContainerScopeReady = (container: interfaces.Container) => Disposable | null | undefined | void;
+    /**
+     * Callback to run once a {@link ContainerScope} is ready.
+     *
+     * Binding callbacks to this symbol will only work if part of a {@link ContainerScope}.
+     */
+    export const Init = serviceIdentifier<Init>('ContainerScope.Init');
+    export type Init = (container: interfaces.Container) => Disposable | null | undefined | void;
 
-export const ContainerScopeRegistry = serviceIdentifier<ContainerScopeRegistry>('ContainerScopeRegistry');
-export interface ContainerScopeRegistry {
-    getOrCreateScope(id: any): Rc<ContainerScope>
+    /**
+     * Callback to run once a {@link ContainerScope} is disposed.
+     *
+     * Binding callbacks to this symbol will only work if part of a {@link ContainerScope}.
+     */
+    export const Destroy = serviceIdentifier<Disposable>('ContainerScope.Destroy');
+    export type Destroy = Disposable | Disposable[];
 }
 
 /**
@@ -59,14 +63,11 @@ export class DefaultContainerScope implements ContainerScope {
     protected _container?: interfaces.Container;
     protected disposables = new DisposableCollection();
 
-    constructor(container: interfaces.Container, callbacks: ContainerScopeReady[] = []) {
+    constructor(container: interfaces.Container, initCallbacks?: ContainerScope.Init[]) {
         this._container = container;
-        callbacks.forEach(callback => {
-            const disposable = callback(this._container!);
-            if (Disposable.is(disposable)) {
-                this.disposables.push(disposable);
-            }
-        });
+        if (initCallbacks) {
+            this.runInitCallback(initCallbacks);
+        }
     }
 
     container(): interfaces.Container {
@@ -82,47 +83,13 @@ export class DefaultContainerScope implements ContainerScope {
         this.disposables.dispose();
         container.unbindAll();
     }
-}
 
-/**
- * @internal
- */
-@injectable()
-export class DefaultContainerScopeRegistry implements ContainerScopeRegistry {
-
-    protected scopes = new Map<any, Rc<ContainerScope>>();
-    protected containerFactory?: () => interfaces.Container;
-    protected getCallbacks?: (container: interfaces.Container) => ContainerScopeReady[] | undefined;
-
-    @inject(RcFactory)
-    protected rcFactory!: RcFactory;
-
-    @inject(ContainerScopeFactory)
-    protected containerScopeFactory!: ContainerScopeFactory;
-
-    initialize(
-        containerFactory: () => interfaces.Container,
-        getCallbacks?: (container: interfaces.Container) => ContainerScopeReady[] | undefined
-    ): ContainerScopeRegistry {
-        this.containerFactory = containerFactory;
-        this.getCallbacks = getCallbacks;
-        return this;
-    }
-
-    getOrCreateScope(id: any): Rc<ContainerScope> {
-        let rc = this.scopes.get(id);
-        if (rc) {
-            return rc.clone();
-        } else {
-            const container = this.containerFactory!();
-            const callbacks = this.getCallbacks?.(container) ?? [];
-            const containerScope = this.containerScopeFactory(container, callbacks);
-            rc = this.rcFactory(containerScope);
-            this.scopes.set(id, rc);
-            rc.onWillDisposeRef(() => {
-                this.scopes.delete(id);
-            });
-            return rc;
-        }
+    protected runInitCallback(initCallbacks: ContainerScope.Init[]): void {
+        initCallbacks.forEach(callback => {
+            const disposable = callback(this._container!);
+            if (Disposable.is(disposable)) {
+                this.disposables.push(disposable);
+            }
+        });
     }
 }

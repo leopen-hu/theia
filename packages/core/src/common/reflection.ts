@@ -14,12 +14,13 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
+// eslint-disable-next-line spaced-comment
+/// <reference types="reflect-metadata"/>
+
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { injectable } from 'inversify';
 import { serviceIdentifier } from './types';
 
-export const Reflection = serviceIdentifier<Reflection>('Reflection');
 export interface Reflection {
     /**
      * Based solely on the property name return if it maps to an `Event`.
@@ -31,8 +32,31 @@ export interface Reflection {
      */
     getEventNames(target: object): Set<string>
 }
+export namespace ReflectionApi {
 
-@injectable()
+    /**
+     * @internal
+     */
+    export enum MetadataKeys {
+        IGNORE = 'theia:rpc:ignore',
+    }
+
+    // #region decorators
+
+    /**
+     * Annotate a method or a property to be ignored by the reflection mechanism.
+     */
+    export function Ignore(): MethodDecorator | PropertyDecorator {
+        return Reflect.metadata(MetadataKeys.IGNORE, true);
+    }
+
+    // #endregion
+}
+export const Reflection = Object.assign(
+    serviceIdentifier<Reflection>('Reflection'),
+    ReflectionApi
+);
+
 export class DefaultReflection implements Reflection {
 
     isEventName(name: string): boolean {
@@ -40,21 +64,37 @@ export class DefaultReflection implements Reflection {
     }
 
     getEventNames(instance: object): Set<string> {
-        if (typeof instance !== 'object') {
+        // eslint-disable-next-line no-null/no-null
+        if (typeof instance !== 'object' || instance === null) {
             throw new TypeError('instance is not an object!');
         }
-        // Start with the passed instance, then recursively get methods of parent prototypes
         const events = new Set<string>();
-        let current: object | null = instance;
-        do {
-            for (const property of Object.getOwnPropertyNames(current)) {
-                if (this.isEventName(property) && typeof (instance as any)[property] === 'function') {
-                    events.add(property);
+        [instance, ...iterPrototypeChain(instance)].forEach(object => {
+            Object.getOwnPropertyNames(object).forEach(propertyKey => {
+                if (
+                    this.isEventName(propertyKey)
+                    && !Reflect.getOwnMetadata(Reflection.MetadataKeys.IGNORE, object, propertyKey)
+                    && typeof (instance as any)[propertyKey] === 'function'
+                ) {
+                    events.add(propertyKey);
                 }
-            }
-        } while (
-            current = Object.getPrototypeOf(current)
-        );
+            });
+        });
         return events;
+    }
+}
+
+export function* iterPrototypeChain(target: Object): IterableIterator<Object> {
+    for (
+        let prototype: Object = target instanceof Function
+            // If target is a constructor, we start from its prototype:
+            ? target.prototype
+            // If target is either an instance or a prototype, this will always return the right prototype:
+            : target.constructor.prototype;
+        // eslint-disable-next-line no-null/no-null
+        prototype !== Object.prototype && prototype !== null;
+        prototype = Object.getPrototypeOf(prototype)
+    ) {
+        yield prototype;
     }
 }

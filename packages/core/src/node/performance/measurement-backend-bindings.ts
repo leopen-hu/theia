@@ -24,7 +24,7 @@ export function bindNodeStopwatch(bind: interfaces.Bind): interfaces.BindingWhen
 
 export function bindBackendStopwatchServer(bind: interfaces.Bind): interfaces.BindingWhenOnSyntax<unknown> {
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [stopwatchPath, () => ctx.container.get(BackendStopwatch)]
         ))
         .inSingletonScope()

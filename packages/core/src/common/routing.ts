@@ -16,7 +16,6 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { injectable } from 'inversify';
 import { Disposable } from './disposable';
 
 export interface Middleware<P extends object = any> {
@@ -42,7 +41,6 @@ export interface Broker<T, P extends object = any> {
     listen(handler: Handler<T, P>): Disposable
 }
 
-@injectable()
 export class DefaultRouter<T, P extends object = any> implements Router<T, P>, Broker<T, P> {
 
     protected middlewares = new Set<Middleware<P>>();
@@ -70,7 +68,7 @@ export class DefaultRouter<T, P extends object = any> implements Router<T, P>, B
 
     protected runMiddlewares(params: P, done: (error?: Error) => void): void {
         const iterator = this.middlewares.values();
-        const run = () => {
+        const run = async () => {
             const result = iterator.next();
             if (result.done) {
                 return done();
@@ -84,13 +82,19 @@ export class DefaultRouter<T, P extends object = any> implements Router<T, P>, B
                     queueMicrotask(run);
                 }
             };
-            result.value(params, next);
+            try {
+                await Promise.resolve(result.value(params, next));
+            } catch (error) {
+                console.error(error);
+                next(error);
+            }
         };
+        run();
     }
 
     protected runHandlers(params: P, accepted: () => T, unhandled: (error?: Error) => void): void {
         const iterator = this.handlers.values();
-        const run = () => {
+        const run = async () => {
             const result = iterator.next();
             if (result.done) {
                 return unhandled();
@@ -108,7 +112,12 @@ export class DefaultRouter<T, P extends object = any> implements Router<T, P>, B
                     queueMicrotask(run);
                 }
             };
-            result.value(params, accept, next);
+            try {
+                await Promise.resolve(result.value(params, accept, next));
+            } catch (error) {
+                console.error(error);
+                next(); // ignore error and continue
+            }
         };
         run();
     }

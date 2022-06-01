@@ -27,7 +27,7 @@ export default new ContainerModule(bind => {
 
 export function bindPromptServer(bind: interfaces.Bind): void {
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [GitPrompt.WS_PATH, () => ctx.container.get(GitPrompt.Identifier)]
         ))
         .inSingletonScope();

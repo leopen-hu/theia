@@ -18,10 +18,10 @@ import { ContainerModule } from 'inversify';
 import { DeferredConnection, DeferredConnectionFactory } from './connection';
 import { DefaultConnectionMultiplexer } from './connection-multiplexer';
 import { ConnectionTransformer, TransformedConnection } from './connection-transformer';
-import { ContainerScopeFactory, DefaultContainerScope, DefaultContainerScopeRegistry } from './container-scope';
+import { ContainerScope, DefaultContainerScope } from './container-scope';
 import { DefaultJsonRpc, JsonRpc } from './json-rpc';
 import { LazyProxyFactory, LazyProxyHandler } from './proxy';
-import { DefaultRc, RcFactory } from './reference-counter';
+import { DefaultRc, DefaultTracker, Rc } from './reference-counter';
 import { DefaultReflection, Reflection } from './reflection';
 import { DefaultRouter } from './routing';
 import { RouteHandlerProvider, DefaultRouteHandlerProvider } from './route-handler';
@@ -29,26 +29,40 @@ import { DefaultRpc, DefaultRpcProxyProvider, Rpc } from './rpc';
 
 export default new ContainerModule(bind => {
     // #region transients
-    bind(DefaultRouter).toSelf().inTransientScope();
-    bind(DefaultConnectionMultiplexer).toSelf().inTransientScope();
-    bind(DefaultRpcProxyProvider).toSelf().inTransientScope();
-    bind(DefaultContainerScopeRegistry).toSelf().inTransientScope();
+    bind(DefaultRouter)
+        .toDynamicValue(ctx => new DefaultRouter())
+        .inTransientScope();
+    bind(DefaultConnectionMultiplexer)
+        .toDynamicValue(ctx => new DefaultConnectionMultiplexer(ctx.container.get(DefaultRouter)))
+        .inTransientScope();
+    bind(DefaultRpcProxyProvider)
+        .toDynamicValue(ctx => new DefaultRpcProxyProvider(ctx.container.get(Rpc)))
+        .inTransientScope();
     // #endregion
     // #region singletons
-    bind(JsonRpc).to(DefaultJsonRpc).inSingletonScope();
-    bind(Rpc).to(DefaultRpc).inSingletonScope();
-    bind(Reflection).to(DefaultReflection).inSingletonScope();
-    bind(RouteHandlerProvider).to(DefaultRouteHandlerProvider).inSingletonScope();
+    bind(RouteHandlerProvider)
+        .toDynamicValue(ctx => new DefaultRouteHandlerProvider())
+        .inSingletonScope();
+    bind(JsonRpc)
+        .toDynamicValue(ctx => new DefaultJsonRpc())
+        .inSingletonScope();
+    bind(Reflection)
+        .toDynamicValue(ctx => new DefaultReflection())
+        .inSingletonScope();
+    bind(Rpc)
+        .toDynamicValue(ctx => new DefaultRpc(ctx.container.get(Reflection)))
+        .inSingletonScope();
+    bind(Rc.Tracker)
+        .toDynamicValue(ctx => new DefaultTracker(disposable => DefaultRc.New(disposable), Rc.GlobalMap))
+        .inSingletonScope();
     // #endregion
     // #region factories
     bind(ConnectionTransformer)
         .toFunction((connection, transformer) => new TransformedConnection(connection, transformer));
     bind(DeferredConnectionFactory)
         .toFunction(promise => new DeferredConnection(promise));
-    bind(ContainerScopeFactory)
+    bind(ContainerScope.Factory)
         .toFunction((container, callbacks) => new DefaultContainerScope(container, callbacks));
-    bind(RcFactory)
-        .toFunction(ref => DefaultRc.New(ref));
     bind(LazyProxyFactory)
         .toDynamicValue(ctx => promise => {
             // eslint-disable-next-line no-null/no-null

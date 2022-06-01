@@ -94,7 +94,7 @@ export abstract class BaseTerminalServer implements IBaseTerminalServer {
         }
     }
 
-    async onAttachAttempted(id: number): Promise<void> {
+    async attachAttempted(id: number): Promise<void> {
         const terminal = this.processManager.get(id);
         if (terminal instanceof TaskTerminalProcess) {
             terminal.attachmentAttempted = true;

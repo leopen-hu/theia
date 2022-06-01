@@ -22,7 +22,7 @@ import { fileSearchServicePath, FileSearchService } from '../common/file-search-
 export default new ContainerModule(bind => {
     bind(FileSearchService).to(FileSearchServiceImpl).inSingletonScope();
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [fileSearchServicePath, () => ctx.container.get(FileSearchService)]
         ))
         .inSingletonScope()

@@ -16,22 +16,46 @@
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
-import { injectable, interfaces } from 'inversify';
+import type { interfaces } from 'inversify';
+import type Route = require('route-parser');
 import { ContributionFilterRegistry } from './contribution-filter';
-import { Disposable, Owned } from './disposable';
-import { Event } from './event';
-import { collectRecursive, getAllNamedOptional, getOptional } from './inversify-utils';
+import { Disposable, DisposableCollection, Owned } from './disposable';
+import { Emitter, Event } from './event';
+import { collectRecursive, getOptional } from './inversify-utils';
+import { Rc } from './reference-counter';
 import { serviceIdentifier } from './types';
+
+export type ServiceParams = Record<string, any>;
+/**
+ * Serialized version of {@link ServiceParams}, every value is a string.
+ */
+export type StringifiedParams<T extends ServiceParams> = { [K in keyof T]: string };
 
 /**
  * Represents the `serviceId` string referencing a given service type `T`.
  * @template T the service type
  * @template P the parameters for the service
  */
-export type ServicePath<T, P extends object = any> = string & { __staticOnly: [T, P] };
-export function servicePath<T, P extends object = any>(path: string): ServicePath<T, P> {
+export type ServicePath<T, P extends ServiceParams = any> = string & { __staticOnly: [T, P] & never };
+export function servicePath<T, P extends ServiceParams = {}>(path: string): ServicePath<T, P> {
     return path as ServicePath<T, P>;
 }
+
+export interface ServiceRoute<T, P extends ServiceParams = any> {
+
+    /**
+     * Try to match {@link serviceId} and return the parsed parameters.
+     * @param serviceId
+     */
+    match(serviceId: string): StringifiedParams<P> | false | null | undefined
+
+    /**
+     * Create an identifier matching this route according to {@link params}
+     * @param params
+     */
+    resolve(params: P): string
+}
+export function serviceRoute(): void { }
 
 /**
  * Call the `dispose` function when you no longer need the service. The service
@@ -46,15 +70,22 @@ export type ServiceResult<T> = [service: Owned<T> | undefined, dispose: () => vo
  */
 export const ServiceProvider = serviceIdentifier<ServiceProvider>('ServiceProvider');
 export interface ServiceProvider {
-    getService<T extends object, P extends object = any>(serviceId: string | ServicePath<T, P>, params?: P): ServiceResult<T>;
+    getService<T extends object, P extends ServiceParams = any>(serviceId: string | ServicePath<T, P>, params?: StringifiedParams<P>): ServiceResult<T>;
 }
 
 export function bindServiceProvider(bind: interfaces.Bind, contributionName: string | number | symbol): void {
     bind(ServiceProvider)
         .toDynamicValue(ctx => {
             const contributionFilter = getOptional(ctx.container, ContributionFilterRegistry);
-            const contributions = collectRecursive(ctx.container, container => getAllNamedOptional(container, ServiceContribution, contributionName));
-            return new DefaultServiceProvider(contributionFilter?.applyFilters(contributions, ServiceContribution) ?? contributions);
+            const contributions = collectRecursive(
+                ctx.container,
+                container => container.isBoundNamed(ServiceContribution, contributionName),
+                container => container.getAllNamed(ServiceContribution, contributionName)
+            );
+            return new DefaultServiceProvider(
+                contributionFilter?.applyFilters(contributions, ServiceContribution) ?? contributions,
+                ctx.container.get(Rc.Tracker)
+            );
         })
         .inSingletonScope()
         .whenTargetNamed(contributionName);
@@ -99,15 +130,9 @@ export type ServiceContribution = ServiceContributionFunction | ServiceContribut
  */
 export interface ServiceLifecycle {
     /**
-     * This event is fired once one client disposes on its service.
-     *
-     * The actual service might not be disposed yet.
+     * This event is fired when the caller wants to dispose of the service.
      */
     onDispose: Event<void>
-    /**
-     * This event is fired once all references to the instance are disposed.
-     */
-    onDisposeRef: Event<void>
     /**
      * Dispose of {@link disposable} when {@link onDispose} is fired.
      *
@@ -115,21 +140,21 @@ export interface ServiceLifecycle {
      * all references to it are disposed. You should not dispose the instance
      * yourself.
      */
-    track<T extends Disposable>(disposable: T): T;
+    track<T extends Disposable>(disposable: T): Owned<Rc<T>>;
 }
 export type ServiceContributionFunction = (serviceId: string, params: any, lifecycle: ServiceLifecycle) => any;
 export interface ServiceContributionRecord { [serviceId: string]: (params: any, lifecycle: ServiceLifecycle) => any };
 /**
  * @internal
  *
- * This type allows {@link ServiceContribution.record} to provide accurate
+ * This type allows {@link ServiceContribution.fromEntries} to provide accurate
  * typings when using {@link ServicePath} keys.
  */
 export type ServiceContributionEntries<T extends string[]> = {
     [K in keyof T]: [
         T[K],
         T[K] extends ServicePath<infer S, infer P>
-        ? ((params: P, lifecycle: ServiceLifecycle) => S)
+        ? ((params: P, lifecycle: ServiceLifecycle) => Owned<S>)
         : ((params: any, lifecycle: ServiceLifecycle) => any)
     ]
 };
@@ -152,10 +177,22 @@ export namespace ServiceContributionApi {
      *     .inSingletonScope()
      *     .whenTargetNamed(...);
      */
-    export function record<T extends string[]>(...entries: ServiceContributionEntries<T>): ServiceContributionRecord {
+    export function fromEntries<T extends string[]>(...entries: ServiceContributionEntries<T>): ServiceContributionRecord {
         const result: ServiceContributionRecord = {};
         entries.forEach(([key, value]) => result[key] = value);
         return result;
+    }
+
+    export function fromRoute<P extends ServiceParams>(
+        route: Route<P>,
+        handler: (matched: string, params: StringifiedParams<P>, lifecycle: ServiceLifecycle) => any
+    ): ServiceContributionFunction {
+        return (serviceId, params, lifecycle) => {
+            const match = route.match(serviceId);
+            if (match) {
+                return handler(serviceId, match, lifecycle);
+            }
+        };
     }
 }
 export const ServiceContribution = Object.assign(
@@ -168,18 +205,18 @@ export const ServiceContribution = Object.assign(
  *
  * This implementation dispatches a service request to its service contributions.
  */
-@injectable()
 export class DefaultServiceProvider implements ServiceProvider {
 
     constructor(
-        protected serviceContributions: ServiceContribution[]
+        protected serviceContributions: ServiceContribution[],
+        protected rcTracker: Rc.Tracker
     ) { }
 
     getService(serviceId: string, params = {}): [any, any] {
         for (const contribution of this.serviceContributions) {
             try {
                 let service: any;
-                const lifecycle = new ServiceLifecycleImpl();
+                const lifecycle = new ServiceLifecycleImpl(this.rcTracker);
                 if (typeof contribution === 'function') {
                     service = contribution(serviceId, params, lifecycle);
                 } else if (typeof contribution === 'object' && !Array.isArray(contribution)) {
@@ -189,8 +226,9 @@ export class DefaultServiceProvider implements ServiceProvider {
                     continue;
                 }
                 if (service) {
-                    return [service, () => { /* TODO */ }];
+                    return [service, () => { lifecycle.dispose(); }];
                 }
+                lifecycle.dispose();
             } catch (error) {
                 console.error(error);
             }
@@ -199,12 +237,27 @@ export class DefaultServiceProvider implements ServiceProvider {
     }
 }
 
-export class ServiceLifecycleImpl implements ServiceLifecycle {
+export class ServiceLifecycleImpl implements ServiceLifecycle, Disposable {
 
-    onDispose = Event.None;
-    onDisposeRef = Event.None;
+    protected disposables = new DisposableCollection();
+    protected onDisposeEmitter = this.disposables.pushThru(new Emitter<void>());
 
-    track<T extends Disposable>(disposable: T): T {
-        return disposable;
+    constructor(
+        protected rcTracker: Rc.Tracker
+    ) { }
+
+    get onDispose(): Event<void> {
+        return this.onDisposeEmitter.event;
+    }
+
+    track<T extends Disposable>(disposable: T): Owned<Rc<T>> {
+        const rc = this.rcTracker.track(disposable);
+        this.disposables.push(rc);
+        return rc;
+    }
+
+    dispose(): void {
+        this.disposables.dispose();
+        this.onDisposeEmitter.fire();
     }
 }

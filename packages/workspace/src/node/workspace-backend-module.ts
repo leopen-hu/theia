@@ -29,7 +29,7 @@ export default new ContainerModule(bind => {
     bind(BackendApplicationContribution).toService(WorkspaceServer);
     bind(CommonWorkspaceUtils).toSelf().inSingletonScope();
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [workspacePath, () => ctx.container.get(WorkspaceServer)]
         ))
         .inSingletonScope()

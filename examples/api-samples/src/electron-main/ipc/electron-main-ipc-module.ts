@@ -24,7 +24,7 @@ import { ElectronMainAndBackendIpcSampleImpl } from './electron-main-ipc-impl';
 export default new ContainerModule(bind => {
     bind(ElectronMainAndBackendIpcSample).to(ElectronMainAndBackendIpcSampleImpl).inSingletonScope();
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [ELECTRON_MAIN_AND_BACKEND_IPC_SAMPLE_PATH, () => ctx.container.get(ElectronMainAndBackendIpcSample)]
         ))
         .inSingletonScope()

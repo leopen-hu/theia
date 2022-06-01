@@ -32,7 +32,7 @@ import { RPCProtocol, RPCProtocolImpl } from '../../common/rpc-protocol';
 import {
     Disposable, DisposableCollection, Emitter, isCancelled,
     ILogger, ContributionProvider, CommandRegistry, WillExecuteCommandEvent,
-    CancellationTokenSource, ProgressService, nls, Event
+    CancellationTokenSource, ProgressService, nls, Event, ConnectionState
 } from '@theia/core';
 import { PreferenceServiceImpl, PreferenceProviderProvider } from '@theia/core/lib/browser/preferences';
 import { WorkspaceService } from '@theia/workspace/lib/browser';
@@ -65,6 +65,7 @@ import { StandaloneServices } from '@theia/monaco-editor-core/esm/vs/editor/stan
 import { ILanguageService } from '@theia/monaco-editor-core/esm/vs/editor/common/languages/language';
 import { LanguageService } from '@theia/monaco-editor-core/esm/vs/editor/common/services/languageService';
 import { Measurement, Stopwatch } from '@theia/core/lib/common';
+import { BufferedConnection, DeferredConnection, waitForRemote } from '@theia/core/lib/common/connection';
 
 export type PluginHost = 'frontend' | string;
 export type DebugActivationEvent = 'onDebugResolve' | 'onDebugInitialConfigurations' | 'onDebugAdapterProtocolTracker' | 'onDebugDynamicConfigurations';
@@ -517,16 +518,24 @@ export class HostedPluginSupport {
     }
 
     private createServerRpc(pluginHostId: string): RPCProtocol {
-        return new RPCProtocolImpl({
+        const connectionToPluginHostServer = new DeferredConnection(waitForRemote(new BufferedConnection({
+            state: ConnectionState.OPENED,
+            onClose: Event.None,
+            onError: Event.None,
+            onOpen: Event.None,
             onMessage: Event.mapFilter(this.server.onMessage, (received, emit) => {
                 if (pluginHostId === received.pluginHostId) {
                     emit(received.message);
                 }
             }),
-            send: message => {
+            sendMessage: message => {
                 this.server.handleMessage(pluginHostId, message);
+            },
+            close: () => {
+                throw new Error('cannot close this connection');
             }
-        });
+        })));
+        return new RPCProtocolImpl(connectionToPluginHostServer);
     }
 
     private async updateStoragePath(): Promise<void> {

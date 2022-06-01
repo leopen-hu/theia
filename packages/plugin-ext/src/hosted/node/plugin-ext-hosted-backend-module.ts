@@ -34,6 +34,7 @@ import { HostedPluginDeployerHandler } from './hosted-plugin-deployer-handler';
 import { PluginUriFactory } from './scanners/plugin-uri-factory';
 import { FilePluginUriFactory } from './scanners/file-plugin-uri-factory';
 import { HostedPluginLocalizationService } from './hosted-plugin-localization-service';
+import { ContainerScope } from '@theia/core';
 
 const commonHostedConnectionModule = ConnectionContainerModule.create(({ bind, bindBackendService }) => {
     bind(HostedPluginProcess).toSelf().inSingletonScope();
@@ -42,7 +43,9 @@ const commonHostedConnectionModule = ConnectionContainerModule.create(({ bind, b
     bindContributionProvider(bind, Symbol.for(ExtPluginApiProvider));
     bindContributionProvider(bind, PluginHostEnvironmentVariable);
 
-    bind(HostedPluginServer).to(HostedPluginServerImpl).inSingletonScope();
+    bind(HostedPluginServerImpl).toSelf().inSingletonScope();
+    bind(HostedPluginServer).toService(HostedPluginServerImpl);
+    bind(ContainerScope.Destroy).toService(HostedPluginServerImpl);
     bindBackendService(hostedServicePath, HostedPluginServer);
 });
 

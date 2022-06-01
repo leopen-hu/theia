@@ -26,7 +26,7 @@ import { TheiaLocalizationContribution } from './theia-localization-contribution
 export default new ContainerModule(bind => {
     bind(LocalizationProvider).toSelf().inSingletonScope();
     bind(ServiceContribution)
-        .toDynamicValue(ctx => ServiceContribution.record(
+        .toDynamicValue(ctx => ServiceContribution.fromEntries(
             [localizationPath, () => ctx.container.get(LocalizationProvider)]
         ))
         .inSingletonScope()

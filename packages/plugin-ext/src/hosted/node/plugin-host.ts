@@ -14,10 +14,12 @@
 // SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 // *****************************************************************************
 
+import '@theia/core/shared/reflect-metadata';
 import { Emitter } from '@theia/core/lib/common/event';
 import { RPCProtocolImpl, MessageType, ConnectionClosedError } from '../../common/rpc-protocol';
 import { PluginHostRPC } from './plugin-host-rpc';
 import { reviver } from '../../plugin/types-impl';
+import { BufferedConnection, ConnectionState, DeferredConnection, waitForRemote } from '@theia/core/lib/common/connection';
 
 console.log('PLUGIN_HOST(' + process.pid + ') starting instance');
 
@@ -74,32 +76,39 @@ process.on('rejectionHandled', (promise: Promise<any>) => {
 });
 
 let terminating = false;
-const emitter = new Emitter<string>();
-const rpc = new RPCProtocolImpl({
-    onMessage: emitter.event,
-    send: (m: string) => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const messageEmitter = new Emitter<any[]>();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const connectionToParentProcess = new DeferredConnection(waitForRemote(new BufferedConnection<any>({
+    state: ConnectionState.OPENED,
+    onClose: () => ({ dispose(): void { } }),
+    onError: () => ({ dispose(): void { } }),
+    onOpen: () => ({ dispose(): void { } }),
+    onMessage: messageEmitter.event,
+    sendMessage: message => {
         if (process.send && !terminating) {
-            process.send(m);
+            process.send(message);
         }
+    },
+    close: () => {
+        throw new Error('cannot close this connection');
     }
-},
-{
-    reviver: reviver
-});
+})));
+const rpc = new RPCProtocolImpl(connectionToParentProcess, { reviver });
 
-process.on('message', async (message: string) => {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+process.on('message', async (message: any) => {
     if (terminating) {
         return;
     }
     try {
-        const msg = JSON.parse(message);
-        if ('type' in msg && msg.type === MessageType.Terminate) {
+        if ('type' in message && message.type === MessageType.Terminate) {
             terminating = true;
-            emitter.dispose();
-            if ('stopTimeout' in msg && typeof msg.stopTimeout === 'number' && msg.stopTimeout) {
+            messageEmitter.dispose();
+            if ('stopTimeout' in message && typeof message.stopTimeout === 'number' && message.stopTimeout) {
                 await Promise.race([
                     pluginHostRPC.terminate(),
-                    new Promise(resolve => setTimeout(resolve, msg.stopTimeout))
+                    new Promise(resolve => setTimeout(resolve, message.stopTimeout))
                 ]);
             } else {
                 await pluginHostRPC.terminate();
@@ -109,10 +118,10 @@ process.on('message', async (message: string) => {
                 process.send(JSON.stringify({ type: MessageType.Terminated }));
             }
         } else {
-            emitter.fire(message);
+            messageEmitter.fire(message);
         }
-    } catch (e) {
-        console.error(e);
+    } catch (error) {
+        console.error(error);
     }
 });
 
