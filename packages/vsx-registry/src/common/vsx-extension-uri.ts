@@ -17,8 +17,14 @@
 import URI from '@theia/core/lib/common/uri';
 
 export namespace VSXExtensionUri {
-    export function toUri(id: string): URI {
-        return new URI(`vscode:extension/${id}`);
+    export function toUri(name: string, namespace: string): URI;
+    export function toUri(id: string): URI;
+    export function toUri(idOrName: string, namespace?: string): URI {
+        if (typeof namespace === 'string') {
+            return new URI(`vscode:extension/${namespace}.${idOrName}`);
+        } else {
+            return new URI(`vscode:extension/${idOrName}`);
+        }
     }
     export function toId(uri: URI): string | undefined {
         if (uri.scheme === 'vscode' && uri.path.dir.toString() === 'extension') {
